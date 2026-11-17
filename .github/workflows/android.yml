@@ -28,11 +28,11 @@ jobs:
       - name: Construire l'application web (docs/)
         run: node build.js
 
-      - name: Dépendances (versions alignées sur le SDK Expo)
+      - name: Dépendances
         working-directory: mobile
         run: |
           npm install --no-audit --no-fund
-          npx expo install react react-native react-native-webview react-native-safe-area-context expo-keep-awake expo-status-bar
+          npx expo install --check || echo "::warning::versions à aligner sur le SDK Expo (voir ci-dessus)"
 
       - name: Embarquer la page web
         working-directory: mobile

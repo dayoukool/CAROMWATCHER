@@ -30,10 +30,10 @@ mobile/          Application Android (Expo / React Native) : coquille WebView qu
   **Ne pas changer** cette URL : l'historique et le calibrage des utilisateurs seraient perdus.
 - Rôle du natif : autorisation CAMERA au démarrage, écran maintenu allumé (expo-keep-awake),
   vibration via `window.ReactNativeWebView.postMessage({type:'vibrate', pattern})`, zones système (safe-area-context).
-- Pas de package-lock : en CI, `npx expo install …` choisit les versions compatibles avec le SDK.
+- Versions fixées à la main pour le SDK 54 dans mobile/package.json (`npx expo install` plante en CI) ; `expo install --check` signale les écarts dans le journal.
   `android/` est généré par `expo prebuild` (non commité). APK release signé avec la clé de debug du modèle Expo,
   compilé pour arm64-v8a seulement.
-- Développement local : `cd mobile && npm install && npx expo install react react-native react-native-webview react-native-safe-area-context expo-keep-awake expo-status-bar && npm run android`.
+- Développement local : `cd mobile && npm install && npm run android`.
 - APK le plus récent : https://github.com/dayoukool/CAROMWATCHER/releases/latest/download/carambole.apk
 
 ## Interface (app/index.src.html)
