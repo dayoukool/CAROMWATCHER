@@ -1,0 +1,25 @@
+{
+  "expo": {
+    "name": "Carambole",
+    "slug": "carambole",
+    "version": "1.0.0",
+    "orientation": "default",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "dark",
+    "backgroundColor": "#0d1311",
+    "splash": {
+      "image": "./assets/splash.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#0d1311"
+    },
+    "android": {
+      "package": "fr.dayoukool.carambole",
+      "versionCode": 1,
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#0d1311"
+      },
+      "permissions": ["CAMERA", "VIBRATE"]
+    }
+  }
+}

@@ -1,0 +1,66 @@
+# Compile l'APK Android (Expo / React Native) et le publie dans une Release GitHub.
+name: APK Android
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - uses: android-actions/setup-android@v3
+
+      - name: Construire l'application web (docs/)
+        run: node build.js
+
+      - name: Dépendances (versions alignées sur le SDK Expo)
+        working-directory: mobile
+        run: |
+          npm install --no-audit --no-fund
+          npx expo install react react-native react-native-webview react-native-safe-area-context expo-keep-awake expo-status-bar
+
+      - name: Embarquer la page web
+        working-directory: mobile
+        run: node scripts/embed-web.js
+
+      - name: Générer le projet Android
+        working-directory: mobile
+        run: npx expo prebuild --platform android --no-install
+
+      - name: Compiler l'APK
+        working-directory: mobile/android
+        run: ./gradlew assembleRelease --no-daemon -PreactNativeArchitectures=arm64-v8a
+
+      - name: Renommer
+        run: cp mobile/android/app/build/outputs/apk/release/app-release.apk carambole.apk
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: carambole-apk
+          path: carambole.apk
+
+      - name: Publier la release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: apk-${{ github.run_number }}
+          name: Carambole APK n°${{ github.run_number }}
+          body: APK Android compilé automatiquement depuis ${{ github.sha }}. Installer carambole.apk sur le téléphone.
+          files: carambole.apk
+          make_latest: true

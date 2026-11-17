@@ -2,7 +2,7 @@
 import sys, json
 from playwright.sync_api import sync_playwright
 CORNERS = [[96, 58], [548, 60], [612, 330], [28, 326]]
-page_url = 'file:///home/claude/carambole/dist/index.html'
+page_url = 'file:///home/claude/carambole/docs/index.html'
 videos = sys.argv[1:] or ['/tmp/coup16.mp4']
 with sync_playwright() as p:
     br = p.chromium.launch(executable_path='/usr/bin/google-chrome', args=['--autoplay-policy=no-user-gesture-required'])

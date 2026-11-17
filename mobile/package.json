@@ -1,0 +1,14 @@
+{
+  "name": "carambole-mobile",
+  "version": "1.0.0",
+  "private": true,
+  "main": "index.js",
+  "scripts": {
+    "embed": "node scripts/embed-web.js",
+    "start": "npm run embed && expo start",
+    "android": "npm run embed && expo run:android"
+  },
+  "dependencies": {
+    "expo": "~54.0.0"
+  }
+}

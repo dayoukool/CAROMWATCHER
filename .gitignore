@@ -1,0 +1,6 @@
+node_modules/
+mobile/android/
+mobile/ios/
+mobile/.expo/
+mobile/web/appHtml.js
+*.apk

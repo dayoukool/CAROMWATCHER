@@ -203,6 +203,12 @@ let calibrating = false, calibPts = [], dragIdx = -1;
 let lastPos = [null, null, null], trails = [[], [], []], lastResult = null;
 let running = false, fileJob = 0;
 
+// Dans l'APK (WebView React Native), la vibration passe par le natif.
+const NATIVE = window.ReactNativeWebView || null;
+function vibrate(pattern) {
+  if (NATIVE) { NATIVE.postMessage(JSON.stringify({ type: 'vibrate', pattern })); return; }
+  try { navigator.vibrate && navigator.vibrate(pattern); } catch (e) { /* ignoré */ }
+}
 function toast(msg, ms = 2600) { const t = $('#toast'); t.textContent = msg; t.classList.add('on'); clearTimeout(toast.h); toast.h = setTimeout(() => t.classList.remove('on'), ms); }
 function setStatus(text, cls = '') { const s = $('#status'); s.textContent = text; s.className = 'pill ' + cls; }
 function hint(text) { const h = $('#hint'); h.hidden = !text; h.textContent = text || ''; }
@@ -344,7 +350,7 @@ function onResult(r) {
   store.set('car.history', history);
   $('#result').innerHTML = resultHTML(r);
   bindResult($('#result'), r);
-  try { navigator.vibrate && navigator.vibrate(r.valid ? [60, 60, 60] : [250]); } catch (e) { /* ignoré */ }
+  vibrate(r.valid ? [60, 60, 60] : [250]);
   renderHistory();
 }
 function compact(r) {
@@ -370,7 +376,7 @@ async function startCamera() {
     if (corners) buildEngine(); else startCalib();
     running = true; loopCamera();
   } catch (err) {
-    toast('Caméra indisponible ici. Importez une vidéo, ou ouvrez la page hébergée dans Chrome.', 5000);
+    toast(NATIVE ? 'Caméra refusée : autorisez-la dans les paramètres Android de l\'application.' : 'Caméra indisponible ici. Importez une vidéo, ou ouvrez la page hébergée dans Chrome.', 5000);
   }
 }
 function loopCamera() {
@@ -590,7 +596,7 @@ $('#file').onchange = (e) => { const f = e.target.files[0]; if (f) openFile(f); 
 initSettings();
 renderHistory();
 // installation hors ligne (ignoré quand la page est intégrée dans Claude ou ouverte en fichier local)
-if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost')) {
+if (!NATIVE && 'serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost')) {
   navigator.serviceWorker.register('sw.js').catch(() => {});
 }
 </script>

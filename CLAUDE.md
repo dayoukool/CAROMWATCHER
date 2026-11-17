@@ -19,7 +19,22 @@ build.js         node build.js → docs/ : index.html autonome (~72 Ko) + fichie
 app/pwa/         manifest.webmanifest, sw.js (cache réseau d'abord, hors ligne ensuite), icônes 192/512.
 test/make_video.js  Rend un coup simulé en MP4 (ffmpeg) pour tester la page.
 test/e2e.py      Test de bout en bout : Chrome sans écran (Playwright), calibrage au doigt, import, verdict.
+mobile/          Application Android (Expo / React Native) : coquille WebView qui embarque docs/index.html.
+.github/workflows/android.yml  Compile l'APK à chaque push sur main et le publie en Release GitHub.
 ```
+
+## Application Android (mobile/)
+- Expo SDK 54. `App.js` affiche la page web dans `react-native-webview`, chargée depuis une chaîne
+  (`web/appHtml.js`, généré par `scripts/embed-web.js` à partir de `docs/index.html`, non commité).
+- `baseUrl` = `https://carambole.local/` : origine HTTPS → contexte sécurisé (getUserMedia) et clé du localStorage.
+  **Ne pas changer** cette URL : l'historique et le calibrage des utilisateurs seraient perdus.
+- Rôle du natif : autorisation CAMERA au démarrage, écran maintenu allumé (expo-keep-awake),
+  vibration via `window.ReactNativeWebView.postMessage({type:'vibrate', pattern})`, zones système (safe-area-context).
+- Pas de package-lock : en CI, `npx expo install …` choisit les versions compatibles avec le SDK.
+  `android/` est généré par `expo prebuild` (non commité). APK release signé avec la clé de debug du modèle Expo,
+  compilé pour arm64-v8a seulement.
+- Développement local : `cd mobile && npm install && npx expo install react react-native react-native-webview react-native-safe-area-context expo-keep-awake expo-status-bar && npm run android`.
+- APK le plus récent : https://github.com/dayoukool/CAROMWATCHER/releases/latest/download/carambole.apk
 
 ## Interface (app/index.src.html)
 - Sources : caméra (getUserMedia, 60 i/s demandés, `requestVideoFrameCallback` pour l'horodatage)
@@ -102,5 +117,5 @@ Test navigateur : 2 vidéos MP4, verdicts justes, aucune image sautée, aucune e
 ## Prochaines étapes
 - Essais sur une vraie table : ajuster les seuils de couleur, vérifier la cadence réelle de la caméra en direct.
 - Utiliser les corrections manuelles de l'historique pour régler les seuils (contact, effet).
-- Si la cadence du navigateur ne suffit pas : application Android native (CameraX à 120/240 i/s) réutilisant engine.js dans une WebView ou porté en Kotlin.
+- Si la cadence de la WebView ne suffit pas : caméra native haute cadence (react-native-vision-camera, 120/240 i/s) avec engine.js dans un frame processor.
 - Moteur dans un Web Worker si le téléphone n'arrive pas à suivre 60 i/s en direct.
