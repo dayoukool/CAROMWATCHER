@@ -1,5 +1,6 @@
 // Coquille React Native : affiche l'application web (moteur + interface) dans une WebView
 // et lui fournit ce que le navigateur fait mal : autorisation caméra, écran allumé, vibration, zones système.
+// mixedContentMode + usesCleartextTraffic (plugins/withCleartext.js) : la page HTTPS peut joindre le Pi en HTTP local.
 import React, { useEffect } from 'react';
 import { PermissionsAndroid, Platform, StyleSheet, Vibration } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
@@ -49,6 +50,7 @@ export default function App() {
           allowsInlineMediaPlayback
           mediaPlaybackRequiresUserAction={false}
           mediaCapturePermissionGrantType="grant"
+          mixedContentMode="always"
           setSupportMultipleWindows={false}
           onMessage={onMessage}
           webviewDebuggingEnabled={__DEV__}

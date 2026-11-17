@@ -80,10 +80,18 @@ const IW = 640, IH = 360;
 const CORNERS = [[96, 58], [548, 60], [612, 330], [28, 326]];
 const COL = { cloth: [38, 92, 168], rail: [92, 58, 30], floor: [40, 40, 44], ball: [[238, 238, 228], [236, 196, 36], [196, 28, 34]], cue: [214, 182, 132], hand: [196, 148, 118] };
 
-function makeRenderer(seed) {
-  const H = E.homography(CORNERS, [[0, 0], [L, 0], [L, W], [0, W]]);
+/** Points de calibrage vus par la caméra (coins + milieux des bandes), objectif k1 compris. */
+function calibPoints(k1 = 0) {
+  const ideal = E.makeProjector(IW, IH, CORNERS, { L, W }, 0), lens = E.makeLens(IW, IH, k1);
+  const im = (p) => { const q = ideal.toImage(p[0], p[1]); return lens.dist(q[0], q[1]); };
+  return { corners: [[0, 0], [L, 0], [L, W], [0, W]].map(im), mids: [[L / 2, 0], [L, W / 2], [L / 2, W], [0, W / 2]].map(im) };
+}
+
+function makeRenderer(seed, k1 = 0) {
+  // CORNERS = coins dans l'image idéale (sans déformation) ; l'objectif k1 déforme ensuite l'image
+  const H = E.homography(CORNERS, [[0, 0], [L, 0], [L, W], [0, W]]), lens = E.makeLens(IW, IH, k1);
   const n = IW * IH, tx = new Float32Array(n), ty = new Float32Array(n);
-  for (let y = 0; y < IH; y++) for (let x = 0; x < IW; x++) { const p = E.project(H, x + 0.5, y + 0.5); tx[y * IW + x] = p[0]; ty[y * IW + x] = p[1]; }
+  for (let y = 0; y < IH; y++) for (let x = 0; x < IW; x++) { const q = lens.undist(x + 0.5, y + 0.5); const p = E.project(H, q[0], q[1]); tx[y * IW + x] = p[0]; ty[y * IW + x] = p[1]; }
   const r = rng(seed);
   const noise = new Int8Array(n * 3 * 4); for (let i = 0; i < noise.length; i++) noise[i] = Math.round(gauss(r) * 5);
   let frameNo = 0;
@@ -146,4 +154,4 @@ function cueMotion(ball, dir, irregular, seed) {
   };
 }
 
-module.exports = { simulate, makeRenderer, cueMotion, CORNERS, L, W, R, D, IW, IH, rng };
+module.exports = { simulate, makeRenderer, cueMotion, calibPoints, CORNERS, L, W, R, D, IW, IH, rng };

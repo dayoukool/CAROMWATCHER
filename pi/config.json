@@ -1,0 +1,17 @@
+{
+  "port": 8080,
+  "camera": {
+    "type": "rpicam",
+    "width": 640,
+    "height": 360,
+    "fps": 100,
+    "shutter": 4000,
+    "focusDistance": 1.4,
+    "extraArgs": []
+  },
+  "gestureEvery": 2,
+  "previewWidth": 320,
+  "historyMax": 1000,
+  "dataDir": "data",
+  "appDir": "../docs"
+}

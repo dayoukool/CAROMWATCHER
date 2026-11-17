@@ -51,10 +51,13 @@ function run(sc, verbose) {
   if (!b) return { skip: true };
   const { sim, balls, strike } = b;
   const fps = sc.fps;
-  const render = S.makeRenderer(sc.seed || 1);
+  const k1 = sc.k1 || 0;
+  const render = S.makeRenderer(sc.seed || 1, k1);
   const r = S.rng((sc.seed || 1) * 7 + 3);
-  const corners = S.CORNERS.map((c) => [c[0] + (r() - 0.5) * 3, c[1] + (r() - 0.5) * 3]);
-  const det = new E.Detector(S.IW, S.IH, corners, TABLE);
+  const jit = (c) => [c[0] + (r() - 0.5) * 3, c[1] + (r() - 0.5) * 3]; // erreur de pointage au doigt
+  const cp = S.calibPoints(k1), corners = cp.corners.map(jit), mids = cp.mids.map(jit);
+  const fit = k1 ? E.fitDistortion(S.IW, S.IH, corners, mids) : { k1: 0 };
+  const det = new E.Detector(S.IW, S.IH, corners, TABLE, { k1: fit.k1 });
   const motion = S.cueMotion(balls[strike.cue], strike.dir, !!sc.irregular, sc.seed || 1);
   const t0 = -3.2;
   det.learnCloth(render(sim.sample(0), null));
@@ -74,7 +77,7 @@ function run(sc, verbose) {
   const touched = new Set(sim.events.filter((e) => e.type === 'bille' && (e.i === cue || e.j === cue)).map((e) => (e.i === cue ? e.j : e.i)));
   const truthValid = touched.size === 2;
   const truthEff = sim.truth && sim.truth.a / sc.v0 > 0.25 ? effOf(sim.truth.k) : null;
-  return { result, truthValid, truthEff, kTrue: sim.truth && sim.truth.k, settled: sim.truth && sim.truth.settled };
+  return { result, truthValid, truthEff, kTrue: sim.truth && sim.truth.k, settled: sim.truth && sim.truth.settled, k1Fit: fit.k1 };
 }
 
 function genScenarios() {
@@ -99,7 +102,8 @@ module.exports = { build, run, genScenarios };
 
 if (require.main === module) {
   const only = process.argv[2] ? process.argv[2].split(',').map(Number) : null;
-  const scs = genScenarios().filter((s) => !only || only.includes(s.id));
+  const K1 = process.env.K1 ? +process.env.K1 : 0;
+  const scs = genScenarios().filter((s) => !only || only.includes(s.id)).map((s) => Object.assign(s, { k1: K1 }));
   let n = 0, okV = 0, effN = 0, effOk = 0, skip = 0, missing = 0;
   const confusion = {};
   const gest = { reg: [], irr: [] };

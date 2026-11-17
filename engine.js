@@ -67,6 +67,66 @@
   const std = (arr) => { const m = mean(arr); return Math.sqrt(mean(arr.map((v) => (v - m) ** 2))); };
   const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 
+  // ---------- objectif (déformation radiale d'un grand angle) ----------
+  // p_image = c + (p_idéal - c) · (1 + k1·r²), r normalisé par la demi-diagonale de l'image.
+  // k1 < 0 : déformation « en barillet » (grand angle). k1 ne dépend pas de la résolution.
+  function makeLens(w, h, k1) {
+    k1 = k1 || 0;
+    const cx = w / 2, cy = h / 2, s = hyp(w, h) / 2;
+    return {
+      k1,
+      dist(u, v) { const x = (u - cx) / s, y = (v - cy) / s, f = 1 + k1 * (x * x + y * y); return [cx + x * f * s, cy + y * f * s]; },
+      undist(u, v) {
+        if (!k1) return [u, v];
+        const xd = (u - cx) / s, yd = (v - cy) / s;
+        let x = xd, y = yd;
+        for (let i = 0; i < 25; i++) { const f = 1 + k1 * (x * x + y * y); x = xd / f; y = yd / f; }
+        return [cx + x * s, cy + y * s];
+      },
+    };
+  }
+  /** Passage image <-> table (mètres), objectif compris. corners en pixels, dans l'ordre du calibrage. */
+  function makeProjector(w, h, corners, table, k1) {
+    const lens = makeLens(w, h, k1), { L, W } = table, tc = [[0, 0], [L, 0], [L, W], [0, W]];
+    const uc = corners.map((c) => lens.undist(c[0], c[1]));
+    const H = homography(uc, tc), Hi = homography(tc, uc);
+    return {
+      lens, H, Hi, w, h, table,
+      toTable(u, v) { const p = lens.undist(u, v); return project(H, p[0], p[1]); },
+      toImage(x, y) { const p = project(Hi, x, y); return lens.dist(p[0], p[1]); },
+      ballRadius(x, y) {
+        const c = this.toImage(x, y), a = this.toImage(x + BALL_R, y), b = this.toImage(x, y + BALL_R);
+        return [hyp(a[0] - c[0], a[1] - c[1]), hyp(b[0] - c[0], b[1] - c[1])];
+      },
+    };
+  }
+  /**
+   * Estime k1 pour que chaque bande soit droite : mids = milieux des 4 bandes
+   * (1-2, 2-3, 3-4, 4-1), en pixels. Renvoie {k1, residual} (résidu en % de la longueur de bande).
+   */
+  function fitDistortion(w, h, corners, mids) {
+    const err = (k1) => {
+      const lens = makeLens(w, h, k1);
+      const c = corners.map((p) => lens.undist(p[0], p[1])), m = mids.map((p) => lens.undist(p[0], p[1]));
+      let e = 0;
+      for (let i = 0; i < 4; i++) {
+        const a = c[i], b = c[(i + 1) % 4], d = sub(b, a), len = norm(d);
+        const off = ((m[i][0] - a[0]) * d[1] - (m[i][1] - a[1]) * d[0]) / len;
+        e += (off / len) ** 2;
+      }
+      return e;
+    };
+    let lo = -0.6, hi = 0.4;
+    const g = (Math.sqrt(5) - 1) / 2;
+    let x1 = hi - g * (hi - lo), x2 = lo + g * (hi - lo), f1 = err(x1), f2 = err(x2);
+    for (let i = 0; i < 60; i++) {
+      if (f1 < f2) { hi = x2; x2 = x1; f2 = f1; x1 = hi - g * (hi - lo); f1 = err(x1); }
+      else { lo = x1; x1 = x2; f1 = f2; x2 = lo + g * (hi - lo); f2 = err(x2); }
+    }
+    const k1 = (lo + hi) / 2;
+    return { k1, residual: 100 * Math.sqrt(err(k1) / 4) };
+  }
+
   // ---------- détection image ----------
   class Detector {
     /**
@@ -78,20 +138,24 @@
     constructor(w, h, corners, table, opts = {}) {
       this.w = w; this.h = h; this.table = table; this.corners = corners;
       this.colors = Object.assign({}, DEFAULT_COLORS, opts.colors || {});
-      const { L, W } = table, tc = [[0, 0], [L, 0], [L, W], [0, W]];
-      this.H = homography(corners, tc);
-      this.Hi = homography(tc, corners);
-      const cx = mean(corners.map((c) => c[0])), cy = mean(corners.map((c) => c[1]));
+      const { L, W } = table;
+      this.proj = makeProjector(w, h, corners, table, opts.k1 || 0);
+      this.k1 = this.proj.lens.k1;
+      this.H = this.proj.H; this.Hi = this.proj.Hi;
+      const lens = this.proj.lens;
+      const uc = corners.map((c) => lens.undist(c[0], c[1]));
+      const cx = mean(uc.map((c) => c[0])), cy = mean(uc.map((c) => c[1]));
       const H = this.H, wSign = Math.sign(H[6] * cx + H[7] * cy + H[8]);
       const n = w * h;
       this.tx = new Float32Array(n); this.ty = new Float32Array(n);
       this.zone = new Uint8Array(n); // 1 = zone billes (élargie), 2 = drap strict
       const list = [], m = 0.025, ins = 0.015;
       for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
-        const i = y * w + x, ww = H[6] * (x + 0.5) + H[7] * (y + 0.5) + H[8];
+        const i = y * w + x, q = lens.k1 ? lens.undist(x + 0.5, y + 0.5) : [x + 0.5, y + 0.5];
+        const ww = H[6] * q[0] + H[7] * q[1] + H[8];
         if (Math.sign(ww) !== wSign) continue;
-        const X = (H[0] * (x + 0.5) + H[1] * (y + 0.5) + H[2]) / ww;
-        const Y = (H[3] * (x + 0.5) + H[4] * (y + 0.5) + H[5]) / ww;
+        const X = (H[0] * q[0] + H[1] * q[1] + H[2]) / ww;
+        const Y = (H[3] * q[0] + H[4] * q[1] + H[5]) / ww;
         this.tx[i] = X; this.ty[i] = Y;
         if (X > -m && X < L + m && Y > -m && Y < W + m) {
           this.zone[i] = 1; list.push(i);
@@ -104,11 +168,9 @@
       this.cloth = null;
     }
 
-    localRadius(X, Y) {
-      const c = project(this.Hi, X, Y);
-      const a = project(this.Hi, X + BALL_R, Y), b = project(this.Hi, X, Y + BALL_R);
-      return [hyp(a[0] - c[0], a[1] - c[1]), hyp(b[0] - c[0], b[1] - c[1])];
-    }
+    localRadius(X, Y) { return this.proj.ballRadius(X, Y); }
+    toImage(X, Y) { return this.proj.toImage(X, Y); }
+    toTable(u, v) { return this.proj.toTable(u, v); }
 
     classifyPixel(r, g, b) {
       const C = this.colors;
@@ -172,7 +234,7 @@
       for (const s of stats.values()) {
         if (s.area < 4) continue;
         const ix = s.sx / s.area + 0.5, iy = s.sy / s.area + 0.5;
-        const [X, Y] = project(this.H, ix, iy);
+        const [X, Y] = this.proj.toTable(ix, iy);
         const [rx, ry] = this.localRadius(X, Y);
         const expA = Math.PI * rx * ry;
         const ratio = s.area / expA;
@@ -193,7 +255,7 @@
       const Z = 0.5, d = img.data, w = this.w, h = this.h, cl = this.cloth;
       let x0 = 1e9, x1 = -1e9, y0 = 1e9, y1 = -1e9;
       for (let a = 0; a < 16; a++) {
-        const p = project(this.Hi, ball[0] + Z * Math.cos(a * Math.PI / 8), ball[1] + Z * Math.sin(a * Math.PI / 8));
+        const p = this.proj.toImage(ball[0] + Z * Math.cos(a * Math.PI / 8), ball[1] + Z * Math.sin(a * Math.PI / 8));
         x0 = Math.min(x0, p[0]); x1 = Math.max(x1, p[0]); y0 = Math.min(y0, p[1]); y1 = Math.max(y1, p[1]);
       }
       x0 = clamp(Math.floor(x0), 0, w - 1); x1 = clamp(Math.ceil(x1), 0, w - 1);
@@ -684,14 +746,17 @@
         while (this.buf.length && t - this.buf[0].t > 3.6) this.buf.shift();
         // repos = médiane des 0,4 s précédentes (hors image courante)
         const past = this.buf.filter((f) => f !== fr && t - f.t < 0.6 && t - f.t > 0.08);
-        let start = false;
+        let start = false, stillBefore = past.length >= 3;
         for (let b = 0; b < 3; b++) {
           const ps = past.map((f) => f.pos[b]).filter(Boolean);
-          if (!pos[b] || ps.length < 3) { this.moveCount[b] = 0; continue; }
+          if (!pos[b] || ps.length < 3) { this.moveCount[b] = 0; stillBefore = false; continue; }
           const r = [median(ps.map((p) => p[0])), median(ps.map((p) => p[1]))];
+          // un coup ne démarre que depuis une table immobile (sinon : coup déjà en cours, billes qu'on replace…)
+          if (ps.some((p) => hyp(p[0] - r[0], p[1] - r[1]) > 0.015)) stillBefore = false;
           if (hyp(pos[b][0] - r[0], pos[b][1] - r[1]) > 0.012) this.moveCount[b]++; else this.moveCount[b] = 0;
           if (this.moveCount[b] >= 2) start = true;
         }
+        if (start && !stillBefore) { start = false; this.moveCount = [0, 0, 0]; }
         if (start) {
           this.state = 'shot';
           const tStart = t - 0.1;
@@ -724,5 +789,16 @@
     }
   }
 
-  return { Detector, Session, analyzeShot, analyzeGesture, homography, project, TABLES, NAMES, EFFECTS, BALL_D, BALL_R, DEFAULT_COLORS };
+  /** Résultat allégé pour l'historique et le réseau (trajectoires sous-échantillonnées, mm). */
+  function compactResult(r, tableKey) {
+    const round = (p) => p && [Math.round(p[0] * 1000) / 1000, Math.round(p[1] * 1000) / 1000];
+    return {
+      id: r.id, time: r.time, valid: r.valid, foul: !!r.foul, reason: r.reason, confidence: r.confidence, cue: r.cue, fps: r.fps,
+      sequence: (r.sequence || []).map((e) => ({ type: e.type, ball: e.ball, rail: e.rail, p: round(e.p) })),
+      effect: r.effect, gesture: r.gesture, notes: r.notes,
+      traj: (r.traj || []).map((ps) => ps && ps.filter((_, i) => i % 2 === 0).map(round)), table: tableKey, corrected: null,
+    };
+  }
+
+  return { compactResult, Detector, Session, analyzeShot, analyzeGesture, homography, project, makeLens, makeProjector, fitDistortion, TABLES, NAMES, EFFECTS, BALL_D, BALL_R, DEFAULT_COLORS };
 });

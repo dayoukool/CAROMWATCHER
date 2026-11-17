@@ -1,0 +1,15 @@
+[Unit]
+Description=Carambole - arbitre vidéo (serveur caméra + analyse)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=@USER@
+WorkingDirectory=@DIR@/pi
+ExecStart=/usr/bin/env node @DIR@/pi/server.js
+Restart=always
+RestartSec=3
+Nice=-5
+
+[Install]
+WantedBy=multi-user.target

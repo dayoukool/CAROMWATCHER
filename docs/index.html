@@ -67,6 +67,7 @@
   .badge.ok { background: #173a28; color: var(--ok); } .badge.ko { background: #3a1919; color: var(--ko); } .badge.foul { background: #3a2c15; color: var(--warn); }
   label.f { display: block; margin: 10px 0 4px; color: var(--muted); font-size: 13px; }
   select, input[type=range] { width: 100%; }
+  input.txt { background: var(--panel2); color: var(--text); border: 1px solid var(--line); border-radius: 10px; padding: 9px; font: inherit; min-width: 0; }
   select { background: var(--panel2); color: var(--text); border: 1px solid var(--line); border-radius: 10px; padding: 9px; font: inherit; }
   .switch { display: flex; align-items: center; justify-content: space-between; margin-top: 12px; }
   nav { position: fixed; bottom: 0; left: 0; right: 0; display: flex; background: rgba(13,19,17,.96); border-top: 1px solid var(--line); padding: 6px 6px calc(6px + env(safe-area-inset-bottom)); z-index: 6; }
@@ -93,19 +94,26 @@
   <!-- ===== Analyse ===== -->
   <section id="tab-live" class="tab on">
     <div class="stage" id="stage">
-      <div class="empty" id="empty">Choisissez une source :<br>la caméra du téléphone ou une vidéo d'un coup (idéalement au ralenti).</div>
+      <div class="empty" id="empty">Choisissez une source :<br>la caméra du téléphone, une vidéo d'un coup (idéalement au ralenti)<br>ou le Raspberry Pi fixé au-dessus du billard.</div>
       <canvas id="view" hidden></canvas>
       <div class="hint" id="hint" hidden></div>
     </div>
     <div class="progress" id="progress"><i></i></div>
     <div class="row" style="margin:10px 0 12px">
-      <button class="primary grow" id="btnCam">Caméra</button>
-      <label class="btn grow" for="file">Importer une vidéo</label>
+      <button class="primary grow" id="btnPi">Raspberry Pi</button>
+      <button class="grow" id="btnCam">Caméra</button>
+      <label class="btn grow" for="file">Vidéo</label>
       <input type="file" id="file" accept="video/*">
       <button class="grow" id="btnCalib" disabled>Calibrer</button>
     </div>
+    <div class="card" id="piConnect" hidden>
+      <h2>Connexion au Raspberry Pi</h2>
+      <label class="f" for="piAddr">Adresse du Pi (affichée au démarrage du serveur)</label>
+      <div class="row"><input id="piAddr" class="txt grow" inputmode="url" placeholder="192.168.1.50:8080" autocomplete="off"><button class="primary" id="btnPiGo">Connecter</button></div>
+      <p class="muted" style="font-size:13px;margin:8px 0 0">Le téléphone doit être sur le même Wi-Fi que le Pi.</p>
+    </div>
     <div class="row" id="calibBar" style="margin:-4px 0 12px" hidden>
-      <button class="small" id="btnUndo">Effacer le dernier coin</button>
+      <button class="small" id="btnUndo">Effacer le dernier point</button>
       <button class="small primary" id="btnCalibOk" disabled>Valider le calibrage</button>
     </div>
     <div id="result"></div>
@@ -154,6 +162,13 @@
       <input type="range" id="sSens" min="-3" max="3" step="1">
       <p class="muted" style="font-size:13px;margin:6px 0 0">Augmentez si une bille n'est pas vue, baissez si des reflets ou des mains sont pris pour des billes.</p>
       <div class="switch"><span>Afficher les masques de couleur</span><input type="checkbox" id="sDebug"></div>
+      <div class="switch"><span>Objectif grand angle (corriger la déformation)</span><input type="checkbox" id="sWide"></div>
+      <p class="muted" style="font-size:13px;margin:6px 0 0">Le calibrage demande alors aussi le milieu de chaque bande. Toujours actif avec le Raspberry Pi.</p>
+    </div>
+    <div class="card">
+      <h2>Raspberry Pi</h2>
+      <div id="piInfo" class="muted" style="font-size:13px">Non connecté.</div>
+      <div class="row" style="margin-top:10px"><button class="small" id="btnPiDisc">Se déconnecter</button></div>
     </div>
     <div class="card help">
       <h2>Bien filmer</h2>
@@ -163,6 +178,13 @@
         <li>Calibrer : touchez les 4 coins intérieurs (nez de bande). <b>Coins 1 et 2 sur une même grande bande</b>, puis 3 et 4 en continuant le tour.</li>
         <li>Pour juger un contact serré : filmez le coup au <b>ralenti</b> (120 ou 240 i/s) puis importez la vidéo.</li>
         <li>La caméra en direct ne marche pas dans la page intégrée à Claude : ouvrez la page hébergée en HTTPS (GitHub Pages par exemple) dans Chrome.</li>
+      </ol>
+      <h2 style="margin-top:14px">Avec le Raspberry Pi</h2>
+      <ol>
+        <li>Caméra au plafond, à au moins 1,30 m au-dessus du drap, toute la table dans l'image.</li>
+        <li>Dans l'application : « Raspberry Pi », puis l'adresse affichée par le serveur (ex. 192.168.1.50:8080).
+          Ou ouvrez directement cette adresse dans le navigateur du téléphone.</li>
+        <li>Calibrage : les 4 coins, puis le milieu de chaque bande (1-2, 2-3, 3-4, 4-1). Les milieux servent à corriger la courbure du grand angle.</li>
       </ol>
     </div>
   </section>
@@ -245,6 +267,66 @@
   const std = (arr) => { const m = mean(arr); return Math.sqrt(mean(arr.map((v) => (v - m) ** 2))); };
   const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 
+  // ---------- objectif (déformation radiale d'un grand angle) ----------
+  // p_image = c + (p_idéal - c) · (1 + k1·r²), r normalisé par la demi-diagonale de l'image.
+  // k1 < 0 : déformation « en barillet » (grand angle). k1 ne dépend pas de la résolution.
+  function makeLens(w, h, k1) {
+    k1 = k1 || 0;
+    const cx = w / 2, cy = h / 2, s = hyp(w, h) / 2;
+    return {
+      k1,
+      dist(u, v) { const x = (u - cx) / s, y = (v - cy) / s, f = 1 + k1 * (x * x + y * y); return [cx + x * f * s, cy + y * f * s]; },
+      undist(u, v) {
+        if (!k1) return [u, v];
+        const xd = (u - cx) / s, yd = (v - cy) / s;
+        let x = xd, y = yd;
+        for (let i = 0; i < 25; i++) { const f = 1 + k1 * (x * x + y * y); x = xd / f; y = yd / f; }
+        return [cx + x * s, cy + y * s];
+      },
+    };
+  }
+  /** Passage image <-> table (mètres), objectif compris. corners en pixels, dans l'ordre du calibrage. */
+  function makeProjector(w, h, corners, table, k1) {
+    const lens = makeLens(w, h, k1), { L, W } = table, tc = [[0, 0], [L, 0], [L, W], [0, W]];
+    const uc = corners.map((c) => lens.undist(c[0], c[1]));
+    const H = homography(uc, tc), Hi = homography(tc, uc);
+    return {
+      lens, H, Hi, w, h, table,
+      toTable(u, v) { const p = lens.undist(u, v); return project(H, p[0], p[1]); },
+      toImage(x, y) { const p = project(Hi, x, y); return lens.dist(p[0], p[1]); },
+      ballRadius(x, y) {
+        const c = this.toImage(x, y), a = this.toImage(x + BALL_R, y), b = this.toImage(x, y + BALL_R);
+        return [hyp(a[0] - c[0], a[1] - c[1]), hyp(b[0] - c[0], b[1] - c[1])];
+      },
+    };
+  }
+  /**
+   * Estime k1 pour que chaque bande soit droite : mids = milieux des 4 bandes
+   * (1-2, 2-3, 3-4, 4-1), en pixels. Renvoie {k1, residual} (résidu en % de la longueur de bande).
+   */
+  function fitDistortion(w, h, corners, mids) {
+    const err = (k1) => {
+      const lens = makeLens(w, h, k1);
+      const c = corners.map((p) => lens.undist(p[0], p[1])), m = mids.map((p) => lens.undist(p[0], p[1]));
+      let e = 0;
+      for (let i = 0; i < 4; i++) {
+        const a = c[i], b = c[(i + 1) % 4], d = sub(b, a), len = norm(d);
+        const off = ((m[i][0] - a[0]) * d[1] - (m[i][1] - a[1]) * d[0]) / len;
+        e += (off / len) ** 2;
+      }
+      return e;
+    };
+    let lo = -0.6, hi = 0.4;
+    const g = (Math.sqrt(5) - 1) / 2;
+    let x1 = hi - g * (hi - lo), x2 = lo + g * (hi - lo), f1 = err(x1), f2 = err(x2);
+    for (let i = 0; i < 60; i++) {
+      if (f1 < f2) { hi = x2; x2 = x1; f2 = f1; x1 = hi - g * (hi - lo); f1 = err(x1); }
+      else { lo = x1; x1 = x2; f1 = f2; x2 = lo + g * (hi - lo); f2 = err(x2); }
+    }
+    const k1 = (lo + hi) / 2;
+    return { k1, residual: 100 * Math.sqrt(err(k1) / 4) };
+  }
+
   // ---------- détection image ----------
   class Detector {
     /**
@@ -256,20 +338,24 @@
     constructor(w, h, corners, table, opts = {}) {
       this.w = w; this.h = h; this.table = table; this.corners = corners;
       this.colors = Object.assign({}, DEFAULT_COLORS, opts.colors || {});
-      const { L, W } = table, tc = [[0, 0], [L, 0], [L, W], [0, W]];
-      this.H = homography(corners, tc);
-      this.Hi = homography(tc, corners);
-      const cx = mean(corners.map((c) => c[0])), cy = mean(corners.map((c) => c[1]));
+      const { L, W } = table;
+      this.proj = makeProjector(w, h, corners, table, opts.k1 || 0);
+      this.k1 = this.proj.lens.k1;
+      this.H = this.proj.H; this.Hi = this.proj.Hi;
+      const lens = this.proj.lens;
+      const uc = corners.map((c) => lens.undist(c[0], c[1]));
+      const cx = mean(uc.map((c) => c[0])), cy = mean(uc.map((c) => c[1]));
       const H = this.H, wSign = Math.sign(H[6] * cx + H[7] * cy + H[8]);
       const n = w * h;
       this.tx = new Float32Array(n); this.ty = new Float32Array(n);
       this.zone = new Uint8Array(n); // 1 = zone billes (élargie), 2 = drap strict
       const list = [], m = 0.025, ins = 0.015;
       for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
-        const i = y * w + x, ww = H[6] * (x + 0.5) + H[7] * (y + 0.5) + H[8];
+        const i = y * w + x, q = lens.k1 ? lens.undist(x + 0.5, y + 0.5) : [x + 0.5, y + 0.5];
+        const ww = H[6] * q[0] + H[7] * q[1] + H[8];
         if (Math.sign(ww) !== wSign) continue;
-        const X = (H[0] * (x + 0.5) + H[1] * (y + 0.5) + H[2]) / ww;
-        const Y = (H[3] * (x + 0.5) + H[4] * (y + 0.5) + H[5]) / ww;
+        const X = (H[0] * q[0] + H[1] * q[1] + H[2]) / ww;
+        const Y = (H[3] * q[0] + H[4] * q[1] + H[5]) / ww;
         this.tx[i] = X; this.ty[i] = Y;
         if (X > -m && X < L + m && Y > -m && Y < W + m) {
           this.zone[i] = 1; list.push(i);
@@ -282,11 +368,9 @@
       this.cloth = null;
     }
 
-    localRadius(X, Y) {
-      const c = project(this.Hi, X, Y);
-      const a = project(this.Hi, X + BALL_R, Y), b = project(this.Hi, X, Y + BALL_R);
-      return [hyp(a[0] - c[0], a[1] - c[1]), hyp(b[0] - c[0], b[1] - c[1])];
-    }
+    localRadius(X, Y) { return this.proj.ballRadius(X, Y); }
+    toImage(X, Y) { return this.proj.toImage(X, Y); }
+    toTable(u, v) { return this.proj.toTable(u, v); }
 
     classifyPixel(r, g, b) {
       const C = this.colors;
@@ -350,7 +434,7 @@
       for (const s of stats.values()) {
         if (s.area < 4) continue;
         const ix = s.sx / s.area + 0.5, iy = s.sy / s.area + 0.5;
-        const [X, Y] = project(this.H, ix, iy);
+        const [X, Y] = this.proj.toTable(ix, iy);
         const [rx, ry] = this.localRadius(X, Y);
         const expA = Math.PI * rx * ry;
         const ratio = s.area / expA;
@@ -371,7 +455,7 @@
       const Z = 0.5, d = img.data, w = this.w, h = this.h, cl = this.cloth;
       let x0 = 1e9, x1 = -1e9, y0 = 1e9, y1 = -1e9;
       for (let a = 0; a < 16; a++) {
-        const p = project(this.Hi, ball[0] + Z * Math.cos(a * Math.PI / 8), ball[1] + Z * Math.sin(a * Math.PI / 8));
+        const p = this.proj.toImage(ball[0] + Z * Math.cos(a * Math.PI / 8), ball[1] + Z * Math.sin(a * Math.PI / 8));
         x0 = Math.min(x0, p[0]); x1 = Math.max(x1, p[0]); y0 = Math.min(y0, p[1]); y1 = Math.max(y1, p[1]);
       }
       x0 = clamp(Math.floor(x0), 0, w - 1); x1 = clamp(Math.ceil(x1), 0, w - 1);
@@ -862,14 +946,17 @@
         while (this.buf.length && t - this.buf[0].t > 3.6) this.buf.shift();
         // repos = médiane des 0,4 s précédentes (hors image courante)
         const past = this.buf.filter((f) => f !== fr && t - f.t < 0.6 && t - f.t > 0.08);
-        let start = false;
+        let start = false, stillBefore = past.length >= 3;
         for (let b = 0; b < 3; b++) {
           const ps = past.map((f) => f.pos[b]).filter(Boolean);
-          if (!pos[b] || ps.length < 3) { this.moveCount[b] = 0; continue; }
+          if (!pos[b] || ps.length < 3) { this.moveCount[b] = 0; stillBefore = false; continue; }
           const r = [median(ps.map((p) => p[0])), median(ps.map((p) => p[1]))];
+          // un coup ne démarre que depuis une table immobile (sinon : coup déjà en cours, billes qu'on replace…)
+          if (ps.some((p) => hyp(p[0] - r[0], p[1] - r[1]) > 0.015)) stillBefore = false;
           if (hyp(pos[b][0] - r[0], pos[b][1] - r[1]) > 0.012) this.moveCount[b]++; else this.moveCount[b] = 0;
           if (this.moveCount[b] >= 2) start = true;
         }
+        if (start && !stillBefore) { start = false; this.moveCount = [0, 0, 0]; }
         if (start) {
           this.state = 'shot';
           const tStart = t - 0.1;
@@ -902,7 +989,18 @@
     }
   }
 
-  return { Detector, Session, analyzeShot, analyzeGesture, homography, project, TABLES, NAMES, EFFECTS, BALL_D, BALL_R, DEFAULT_COLORS };
+  /** Résultat allégé pour l'historique et le réseau (trajectoires sous-échantillonnées, mm). */
+  function compactResult(r, tableKey) {
+    const round = (p) => p && [Math.round(p[0] * 1000) / 1000, Math.round(p[1] * 1000) / 1000];
+    return {
+      id: r.id, time: r.time, valid: r.valid, foul: !!r.foul, reason: r.reason, confidence: r.confidence, cue: r.cue, fps: r.fps,
+      sequence: (r.sequence || []).map((e) => ({ type: e.type, ball: e.ball, rail: e.rail, p: round(e.p) })),
+      effect: r.effect, gesture: r.gesture, notes: r.notes,
+      traj: (r.traj || []).map((ps) => ps && ps.filter((_, i) => i % 2 === 0).map(round)), table: tableKey, corrected: null,
+    };
+  }
+
+  return { compactResult, Detector, Session, analyzeShot, analyzeGesture, homography, project, makeLens, makeProjector, fitDistortion, TABLES, NAMES, EFFECTS, BALL_D, BALL_R, DEFAULT_COLORS };
 });
 </script>
 <script>
@@ -918,15 +1016,19 @@ const store = {
   get(k, d) { try { const v = JSON.parse(localStorage.getItem(k)); return v == null ? d : v; } catch (e) { return d; } },
   set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) { /* pas de stockage */ } },
 };
-const settings = Object.assign({ table: 'match', player: 'auto', slowmo: 1, gesture: true, sens: 0, debug: false }, store.get('car.settings', {}));
+const settings = Object.assign({ table: 'match', player: 'auto', slowmo: 1, gesture: true, sens: 0, debug: false, wide: false }, store.get('car.settings', {}));
 let history = store.get('car.history', []);
 let corners = store.get('car.corners', null); // coordonnées normalisées 0..1
+let mids = store.get('car.mids', null);       // milieux des bandes (grand angle), normalisés
+let k1 = store.get('car.k1', 0);              // déformation de l'objectif (0 = aucune)
 
 // ---------- état ----------
 const video = $('#video'), view = $('#view'), vctx = view.getContext('2d');
 const work = document.createElement('canvas'), wctx = work.getContext('2d', { willReadFrequently: true });
-let source = null;          // 'camera' | 'file'
+let source = null;          // 'camera' | 'file' | 'pi'
 let det = null, ses = null;
+// Raspberry Pi : base = 'http://ip:port' ('' si la page est servie par le Pi), st = état reçu du serveur
+const pi = { base: null, es: null, st: null, proj: null, img: null, timer: null, loading: false };
 let calibrating = false, calibPts = [], dragIdx = -1;
 let lastPos = [null, null, null], trails = [[], [], []], lastResult = null;
 let running = false, fileJob = 0;
@@ -952,11 +1054,21 @@ function procSize() {
   return [W, Math.round(vh * W / vw)];
 }
 function grab() {
+  if (source === 'pi') { // aperçu reçu du Pi, mis à l'échelle de l'image analysée par le Pi
+    const w = (pi.st && pi.st.w) || 640, h = (pi.st && pi.st.h) || 360;
+    if (work.width !== w || work.height !== h) { work.width = w; work.height = h; view.width = w; view.height = h; }
+    if (pi.img && pi.img.naturalWidth) wctx.drawImage(pi.img, 0, 0, w, h);
+    return null;
+  }
   const [w, h] = procSize();
   if (work.width !== w || work.height !== h) { work.width = w; work.height = h; view.width = w; view.height = h; }
   wctx.drawImage(video, 0, 0, w, h);
   return wctx.getImageData(0, 0, w, h);
 }
+/** Projection table → image active : moteur local, ou calibrage du Pi. */
+function activeProj() { return source === 'pi' ? pi.proj : det && det.proj; }
+function needMids() { return source === 'pi' || settings.wide; }
+function nPts() { return needMids() ? 8 : 4; }
 function showStage() { $('#empty').hidden = true; view.hidden = false; }
 
 // ---------- dessin ----------
@@ -968,32 +1080,37 @@ function draw(img) {
     vctx.putImageData(d, 0, 0);
   } else vctx.drawImage(work, 0, 0);
   vctx.lineWidth = Math.max(1.5, w / 400);
-  if (det && !calibrating) {
-    const { L, W } = det.table, pts = [[0, 0], [L, 0], [L, W], [0, W]].map((p) => E.project(det.Hi, p[0], p[1]));
-    vctx.strokeStyle = 'rgba(90,169,230,.8)'; vctx.beginPath(); pts.forEach((p, i) => (i ? vctx.lineTo(p[0], p[1]) : vctx.moveTo(p[0], p[1]))); vctx.closePath(); vctx.stroke();
+  const P = activeProj();
+  if (P && !calibrating) {
+    // contour de la table, échantillonné : il suit la courbure de l'objectif
+    const { L, W } = P.table, edge = [];
+    for (const [a, b] of [[[0, 0], [L, 0]], [[L, 0], [L, W]], [[L, W], [0, W]], [[0, W], [0, 0]]]) {
+      for (let s = 0; s < 1; s += 0.05) edge.push(P.toImage(a[0] + s * (b[0] - a[0]), a[1] + s * (b[1] - a[1])));
+    }
+    vctx.strokeStyle = 'rgba(90,169,230,.8)'; vctx.beginPath(); edge.forEach((p, i) => (i ? vctx.lineTo(p[0], p[1]) : vctx.moveTo(p[0], p[1]))); vctx.closePath(); vctx.stroke();
     for (let b = 0; b < 3; b++) {
       const tr = trails[b];
       if (tr.length > 1) {
         vctx.strokeStyle = COLORS[b]; vctx.globalAlpha = 0.85; vctx.beginPath();
-        tr.forEach((p, i) => { const q = E.project(det.Hi, p[0], p[1]); i ? vctx.lineTo(q[0], q[1]) : vctx.moveTo(q[0], q[1]); });
+        tr.forEach((p, i) => { const q = P.toImage(p[0], p[1]); i ? vctx.lineTo(q[0], q[1]) : vctx.moveTo(q[0], q[1]); });
         vctx.stroke(); vctx.globalAlpha = 1;
       }
       const p = lastPos[b];
       if (p) {
-        const q = E.project(det.Hi, p[0], p[1]), r = det.localRadius(p[0], p[1]);
+        const q = P.toImage(p[0], p[1]), r = P.ballRadius(p[0], p[1]);
         vctx.strokeStyle = COLORS[b]; vctx.beginPath(); vctx.ellipse(q[0], q[1], r[0] + 3, r[1] + 3, 0, 0, Math.PI * 2); vctx.stroke();
       }
     }
   }
   if (calibrating) {
-    const pts = calibPts.map(([u, v]) => [u * w, v * h]);
+    const pts = calibPts.map(([u, v]) => [u * w, v * h]), cs = pts.slice(0, 4);
     vctx.strokeStyle = '#5aa9e6'; vctx.fillStyle = 'rgba(90,169,230,.15)';
-    if (pts.length > 1) { vctx.beginPath(); pts.forEach((p, i) => (i ? vctx.lineTo(p[0], p[1]) : vctx.moveTo(p[0], p[1]))); if (pts.length === 4) { vctx.closePath(); vctx.fill(); } vctx.stroke(); }
+    if (cs.length > 1) { vctx.beginPath(); cs.forEach((p, i) => (i ? vctx.lineTo(p[0], p[1]) : vctx.moveTo(p[0], p[1]))); if (cs.length === 4) { vctx.closePath(); vctx.fill(); } vctx.stroke(); }
     pts.forEach((p, i) => {
-      vctx.fillStyle = i < 2 ? '#f2a93b' : '#5aa9e6';
+      vctx.fillStyle = i < 2 ? '#f2a93b' : i < 4 ? '#5aa9e6' : '#3ccf7e';
       vctx.beginPath(); vctx.arc(p[0], p[1], w / 70, 0, Math.PI * 2); vctx.fill();
-      vctx.fillStyle = '#000'; vctx.font = `bold ${Math.round(w / 55)}px system-ui`; vctx.textAlign = 'center'; vctx.textBaseline = 'middle';
-      vctx.fillText(String(i + 1), p[0], p[1] + 1);
+      vctx.fillStyle = '#000'; vctx.font = `bold ${Math.round(w / 60)}px system-ui`; vctx.textAlign = 'center'; vctx.textBaseline = 'middle';
+      vctx.fillText(i < 4 ? String(i + 1) : ['a', 'b', 'c', 'd'][i - 4], p[0], p[1] + 1);
     });
   }
 }
@@ -1004,23 +1121,51 @@ const CALIB_HINTS = [
   'Coin 2 : l\'autre bout de la MÊME grande bande.',
   'Coin 3 : en continuant le tour de la table.',
   'Coin 4 : le dernier coin.',
-  'Faites glisser un coin pour l\'ajuster, puis validez. Retirez mains et queue de la table.',
+  'Point a : le milieu de la bande entre les coins 1 et 2.',
+  'Point b : le milieu de la bande entre 2 et 3.',
+  'Point c : le milieu de la bande entre 3 et 4.',
+  'Point d : le milieu de la bande entre 4 et 1.',
 ];
-function startCalib() {
-  calibrating = true; calibPts = corners ? corners.map((c) => c.slice()) : [];
-  $('#calibBar').hidden = false; $('#btnCalibOk').disabled = calibPts.length !== 4;
-  if (source === 'camera') { /* l'image continue de défiler */ } else video.pause();
-  hint(CALIB_HINTS[Math.min(calibPts.length, 4)]);
+function calibHint() {
+  const n = nPts();
+  hint(calibPts.length < n ? CALIB_HINTS[calibPts.length] : 'Faites glisser un point pour l\'ajuster, puis validez. Retirez mains et queue de la table.');
+  $('#btnCalibOk').disabled = calibPts.length !== n;
+}
+async function startCalib() {
+  calibrating = true;
+  if (source === 'pi') {
+    const c = pi.st && pi.st.calib;
+    calibPts = c ? c.corners.concat(c.mids || []).map((p) => p.slice()) : [];
+    await piLoadFrame(true); // image en pleine définition, figée pendant le calibrage
+  } else {
+    calibPts = corners ? corners.concat(needMids() && mids ? mids : []).map((c) => c.slice()) : [];
+    if (source !== 'camera') video.pause();
+  }
+  if (calibPts.length !== 4 && calibPts.length !== nPts()) calibPts = calibPts.slice(0, 4);
+  $('#calibBar').hidden = false;
+  calibHint();
   grab(); draw();
 }
-function endCalib(ok) {
+async function endCalib(ok) {
   calibrating = false; $('#calibBar').hidden = true; hint('');
   if (ok) {
-    corners = calibPts.map((c) => c.slice()); store.set('car.corners', corners);
-    buildEngine();
-    toast('Calibrage enregistré');
-    if (source === 'file') analyzeFile();
+    const cs = calibPts.slice(0, 4).map((c) => c.slice()), ms = calibPts.length === 8 ? calibPts.slice(4).map((c) => c.slice()) : null;
+    if (source === 'pi') {
+      try {
+        const r = await piPost('/api/calibrate', { corners: cs, mids: ms, table: settings.table });
+        toast(`Calibrage envoyé au Pi · objectif k1 = ${r.k1.toFixed(3)}${r.residual > 1.5 ? ' (points peu cohérents, vérifiez-les)' : ''}`, 4000);
+      } catch (e) { toast('Calibrage refusé : ' + e.message, 4000); }
+    } else {
+      corners = cs; mids = ms;
+      const [w, h] = procSize();
+      k1 = ms ? E.fitDistortion(w, h, cs.map(([u, v]) => [u * w, v * h]), ms.map(([u, v]) => [u * w, v * h])).k1 : 0;
+      store.set('car.corners', corners); store.set('car.mids', mids); store.set('car.k1', k1);
+      buildEngine();
+      toast('Calibrage enregistré' + (ms ? ` · objectif k1 = ${k1.toFixed(3)}` : ''));
+      if (source === 'file') analyzeFile();
+    }
   }
+  if (source === 'pi') piPreview();
   draw();
 }
 function evtPos(e) {
@@ -1031,15 +1176,14 @@ view.addEventListener('pointerdown', (e) => {
   if (!calibrating) return;
   const p = evtPos(e), r = view.getBoundingClientRect();
   dragIdx = calibPts.findIndex((c) => Math.hypot((c[0] - p[0]) * r.width, (c[1] - p[1]) * r.height) < 28);
-  if (dragIdx < 0 && calibPts.length < 4) { calibPts.push(p); dragIdx = calibPts.length - 1; }
+  if (dragIdx < 0 && calibPts.length < nPts()) { calibPts.push(p); dragIdx = calibPts.length - 1; }
   view.setPointerCapture(e.pointerId);
-  $('#btnCalibOk').disabled = calibPts.length !== 4;
-  hint(CALIB_HINTS[Math.min(calibPts.length, 4)]);
+  calibHint();
   draw();
 });
 view.addEventListener('pointermove', (e) => { if (calibrating && dragIdx >= 0) { calibPts[dragIdx] = evtPos(e); draw(); } });
 view.addEventListener('pointerup', () => { dragIdx = -1; });
-$('#btnUndo').onclick = () => { calibPts.pop(); $('#btnCalibOk').disabled = true; hint(CALIB_HINTS[calibPts.length]); draw(); };
+$('#btnUndo').onclick = () => { calibPts.pop(); calibHint(); draw(); };
 $('#btnCalibOk').onclick = () => endCalib(true);
 $('#btnCalib').onclick = () => (calibrating ? endCalib(false) : startCalib());
 
@@ -1047,7 +1191,7 @@ function buildEngine() {
   if (!corners) return;
   const [w, h] = procSize();
   try {
-    det = new E.Detector(w, h, corners.map(([u, v]) => [u * w, v * h]), tableDims(), { colors: colorsFromSens(settings.sens) });
+    det = new E.Detector(w, h, corners.map(([u, v]) => [u * w, v * h]), tableDims(), { colors: colorsFromSens(settings.sens), k1: settings.wide ? k1 : 0 });
   } catch (err) { det = null; ses = null; toast(err.message); return; }
   det.learnCloth(grab());
   ses = new E.Session(det, { player: settings.player === 'auto' ? 'auto' : +settings.player, gesture: settings.gesture });
@@ -1057,6 +1201,7 @@ function buildEngine() {
 // ---------- traitement d'une image ----------
 const dbg = (window.__carambole = { frames: 0, times: [] });
 function processFrame(t) {
+  if (source === 'pi') return;
   dbg.frames++; dbg.times.push(t);
   const img = grab();
   if (calibrating || !ses) { draw(); return; }
@@ -1069,26 +1214,130 @@ function processFrame(t) {
   draw(img);
 }
 
-function onResult(r) {
+/** Résultat d'un coup. fromPi : déjà compacté et identifié par le serveur du Pi. */
+function onResult(r, fromPi) {
   if (r.ignored) { toast('Mouvement ignoré : ' + r.reason); return; }
-  r.id = Date.now() + Math.random();
-  lastResult = r;
-  history.unshift(compact(r));
+  if (!fromPi) { r.id = Date.now() + Math.random(); r.time = Date.now(); }
+  const c = fromPi ? r : E.compactResult(r, settings.table);
+  lastResult = c;
+  if (!history.some((h) => h.id === c.id)) history.unshift(c);
   if (history.length > 300) history.length = 300;
   store.set('car.history', history);
-  $('#result').innerHTML = resultHTML(r);
-  bindResult($('#result'), r);
-  vibrate(r.valid ? [60, 60, 60] : [250]);
+  $('#result').innerHTML = resultHTML(fromPi ? c : r);
+  bindResult($('#result'), fromPi ? c : r);
+  vibrate(c.valid ? [60, 60, 60] : [250]);
   renderHistory();
 }
-function compact(r) {
-  const round = (p) => p && [Math.round(p[0] * 1000) / 1000, Math.round(p[1] * 1000) / 1000];
-  return {
-    id: r.id, time: r.time, valid: r.valid, foul: !!r.foul, reason: r.reason, confidence: r.confidence, cue: r.cue, fps: r.fps,
-    sequence: (r.sequence || []).map((e) => ({ type: e.type, ball: e.ball, rail: e.rail, p: round(e.p) })),
-    effect: r.effect, gesture: r.gesture, notes: r.notes,
-    traj: (r.traj || []).map((ps) => ps && ps.filter((_, i) => i % 2 === 0).map(round)), table: settings.table, corrected: null,
-  };
+
+// ---------- Raspberry Pi ----------
+function piURL(p) { return (pi.base || '') + p; }
+async function piPost(p, body) {
+  const r = await fetch(piURL(p), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j.error || 'erreur ' + r.status);
+  return j;
+}
+function normalizeAddr(a) {
+  a = String(a || '').trim().replace(/\/+$/, '');
+  if (!a) return '';
+  if (!/^https?:\/\//.test(a)) a = 'http://' + a;
+  if (!/:\d+$/.test(a.replace(/^https?:\/\//, ''))) a += ':8080';
+  return a;
+}
+function piSetState(st) {
+  pi.st = st;
+  pi.proj = null;
+  if (st && st.calib && st.w) {
+    const c = st.calib, dims = E.TABLES[st.settings.table] || E.TABLES.match;
+    pi.proj = E.makeProjector(st.w, st.h, c.corners.map(([u, v]) => [u * st.w, v * st.h]), dims, c.k1 || 0);
+  }
+  const s = st && st.stats;
+  $('#piInfo').textContent = st
+    ? `Connecté à ${pi.base || location.host} · image ${st.w}×${st.h}` + (st.calib ? ` · objectif k1 = ${(st.calib.k1 || 0).toFixed(3)}` : ' · pas encore calibré') + (s && s.cameraError ? ` · caméra : ${s.cameraError}` : '')
+    : 'Non connecté.';
+}
+function piStats(s) {
+  if (!s || source !== 'pi' || calibrating) return;
+  if ($('#status').classList.contains('shot')) return;
+  setStatus(s.cameraError ? 'Pi : ' + s.cameraError : `Pi · ${s.fps} i/s · ${s.procMs} ms`, s.cameraError ? '' : 'live');
+}
+/** Charge une image du Pi (aperçu réduit, ou pleine définition pour le calibrage). */
+function piLoadFrame(full) {
+  return new Promise((resolve) => {
+    if (pi.loading && !full) return resolve();
+    pi.loading = true;
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = () => { pi.loading = false; pi.img = img; grab(); draw(); resolve(); };
+    img.onerror = () => { pi.loading = false; resolve(); };
+    img.src = piURL('/frame.png?' + (full ? 'full=1&' : '') + 't=' + Date.now());
+  });
+}
+function piPreview() {
+  clearInterval(pi.timer);
+  pi.timer = setInterval(() => { if (source === 'pi' && !calibrating && !document.hidden) piLoadFrame(false); }, 300);
+}
+async function connectPi(addr) {
+  const base = addr === '' ? '' : normalizeAddr(addr);
+  setStatus('Connexion au Pi…');
+  let st;
+  try {
+    const ctl = new AbortController(), to = setTimeout(() => ctl.abort(), 4000);
+    st = await fetch(base + '/api/state', { cache: 'no-store', signal: ctl.signal }).then((r) => r.json());
+    clearTimeout(to);
+  } catch (e) {
+    setStatus('Pi injoignable');
+    $('#piConnect').hidden = false;
+    toast('Pi injoignable à ' + (base || location.host) + '. Même Wi-Fi ? Serveur démarré ?', 5000);
+    return false;
+  }
+  stopCamera(); stopFile(); disconnectPi(true);
+  source = 'pi'; pi.base = base;
+  if (base) store.set('car.pi', base);
+  $('#piConnect').hidden = true; showStage(); $('#btnCalib').disabled = false; $('#result').innerHTML = '';
+  piSetState(st);
+  // réglages : le Pi fait foi
+  Object.assign(settings, { table: st.settings.table, player: st.settings.player, gesture: st.settings.gesture, sens: st.settings.sens });
+  initSettings();
+  // historique du Pi fusionné avec celui du téléphone
+  try {
+    const h = await fetch(piURL('/api/history'), { cache: 'no-store' }).then((r) => r.json());
+    const known = new Set(history.map((x) => x.id));
+    history = h.filter((x) => !known.has(x.id)).concat(history).sort((a, b) => (b.time || 0) - (a.time || 0)).slice(0, 300);
+    store.set('car.history', history); renderHistory();
+  } catch (e) { /* pas grave */ }
+  const es = new EventSource(piURL('/api/events'));
+  pi.es = es;
+  es.addEventListener('state', (e) => { piSetState(JSON.parse(e.data)); draw(); });
+  es.addEventListener('stats', (e) => piStats(JSON.parse(e.data)));
+  es.addEventListener('pos', (e) => {
+    const d = JSON.parse(e.data);
+    lastPos = d.pos;
+    if (d.state === 'shot') d.pos.forEach((p, b) => p && trails[b].push(p));
+    else if ($('#status').classList.contains('shot')) setStatus('Pi', 'live');
+    if (!calibrating) draw();
+  });
+  es.addEventListener('shot', () => { trails = [[], [], []]; setStatus('Coup en cours', 'shot'); });
+  es.addEventListener('result', (e) => { setStatus('Pi', 'live'); onResult(JSON.parse(e.data), true); });
+  es.addEventListener('ignored', (e) => toast('Mouvement ignoré : ' + JSON.parse(e.data).reason));
+  es.onerror = () => { if (source === 'pi') setStatus('Pi : connexion perdue, reprise…'); };
+  await piLoadFrame(false);
+  piPreview();
+  piStats(st.stats);
+  if (!st.calib) startCalib();
+  return true;
+}
+function disconnectPi(silent) {
+  if (pi.es) pi.es.close();
+  clearInterval(pi.timer);
+  pi.es = null; pi.st = null; pi.proj = null;
+  if (source === 'pi') { source = null; if (!silent) setStatus('Pas de source'); }
+  piSetState(null);
+}
+function piSettings() {
+  if (source !== 'pi') return;
+  piPost('/api/settings', { table: settings.table, player: settings.player, gesture: settings.gesture, sens: settings.sens })
+    .catch((e) => toast('Réglage refusé par le Pi : ' + e.message));
 }
 
 // ---------- caméra ----------
@@ -1251,6 +1500,7 @@ function bindResult(root, r) {
     const val = b.dataset.fix === '1';
     r.corrected = val; if (h) h.corrected = val;
     store.set('car.history', history);
+    if (source === 'pi') piPost('/api/correct', { id: r.id, valid: val }).catch(() => {});
     root.innerHTML = resultHTML(h || r); bindResult(root, h || r);
     renderHistory(); toast('Correction enregistrée');
   });
@@ -1302,7 +1552,13 @@ function initSettings() {
   $('#sTable').value = settings.table; $('#sPlayer').value = String(settings.player); $('#sSlow').value = String(settings.slowmo);
   $('#sGesture').checked = settings.gesture; $('#sDebug').checked = settings.debug; $('#sSens').value = settings.sens;
   $('#sSensV').textContent = settings.sens > 0 ? '+' + settings.sens : settings.sens;
-  const save = (rebuild) => { store.set('car.settings', settings); if (rebuild && det && !calibrating) buildEngine(); };
+  $('#sWide').checked = settings.wide;
+  const save = (rebuild) => {
+    store.set('car.settings', settings);
+    if (rebuild && source === 'pi') piSettings();
+    else if (rebuild && det && !calibrating) buildEngine();
+  };
+  $('#sWide').onchange = (e) => { settings.wide = e.target.checked; save(false); if (source !== 'pi' && det) { buildEngine(); toast(settings.wide ? 'Recalibrez en ajoutant le milieu des bandes' : 'Correction d\'objectif désactivée'); } };
   $('#sTable').onchange = (e) => { settings.table = e.target.value; save(true); };
   $('#sPlayer').onchange = (e) => { settings.player = e.target.value; save(true); };
   $('#sSlow').onchange = (e) => { settings.slowmo = +e.target.value; save(false); };
@@ -1318,11 +1574,24 @@ document.querySelectorAll('nav button').forEach((b) => b.onclick = () => {
   document.querySelectorAll('section.tab').forEach((s) => s.classList.toggle('on', s.id === 'tab-' + b.dataset.tab));
   window.scrollTo(0, 0);
 });
-$('#btnCam').onclick = startCamera;
-$('#file').onchange = (e) => { const f = e.target.files[0]; if (f) openFile(f); e.target.value = ''; };
+$('#btnCam').onclick = () => { disconnectPi(true); startCamera(); };
+$('#btnPi').onclick = () => {
+  const saved = store.get('car.pi', '');
+  if (source === 'pi') { $('#piConnect').hidden = !$('#piConnect').hidden; return; }
+  $('#piAddr').value = saved.replace(/^https?:\/\//, '');
+  if (saved) connectPi(saved); else { $('#piConnect').hidden = false; $('#piAddr').focus(); }
+};
+$('#btnPiGo').onclick = () => connectPi($('#piAddr').value);
+$('#piAddr').onkeydown = (e) => { if (e.key === 'Enter') connectPi($('#piAddr').value); };
+$('#btnPiDisc').onclick = () => { disconnectPi(); toast('Déconnecté du Pi'); };
+$('#file').onchange = (e) => { const f = e.target.files[0]; if (f) { disconnectPi(true); openFile(f); } e.target.value = ''; };
 
 initSettings();
 renderHistory();
+// Page servie par le Pi lui-même (http://ip:8080) : connexion automatique
+if (location.protocol === 'http:' && !NATIVE) {
+  fetch('/api/state', { cache: 'no-store' }).then((r) => (r.ok ? r.json() : null)).then((st) => { if (st && st.version) connectPi(''); }).catch(() => {});
+}
 // installation hors ligne (ignoré quand la page est intégrée dans Claude ou ouverte en fichier local)
 if (!NATIVE && 'serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost')) {
   navigator.serviceWorker.register('sw.js').catch(() => {});

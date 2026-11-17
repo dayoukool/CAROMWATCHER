@@ -2,7 +2,7 @@
   "expo": {
     "name": "Carambole",
     "slug": "carambole",
-    "version": "1.0.0",
+    "version": "1.1.0",
     "orientation": "default",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "dark",
@@ -14,12 +14,18 @@
     },
     "android": {
       "package": "fr.dayoukool.carambole",
-      "versionCode": 1,
+      "versionCode": 2,
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#0d1311"
       },
-      "permissions": ["CAMERA", "VIBRATE"]
-    }
+      "permissions": [
+        "CAMERA",
+        "VIBRATE"
+      ]
+    },
+    "plugins": [
+      "./plugins/withCleartext.js"
+    ]
   }
 }

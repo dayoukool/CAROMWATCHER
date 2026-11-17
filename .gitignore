@@ -4,3 +4,4 @@ mobile/ios/
 mobile/.expo/
 mobile/web/appHtml.js
 *.apk
+pi/data/
