@@ -1,0 +1,598 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#0d1311">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
+<title>Carambole — Arbitre vidéo</title>
+<style>
+  :root {
+    --bg: #0d1311; --panel: #151d1a; --panel2: #1c2622; --line: #2a3631;
+    --text: #e9efe9; --muted: #93a39b; --felt: #2f6e57; --chalk: #5aa9e6;
+    --ok: #3ccf7e; --ko: #ef5b5b; --warn: #f2a93b;
+    --white: #f1f1ea; --yellow: #f2c230; --red: #d8343b;
+    --r: 14px;
+  }
+  * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
+  html, body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  body { padding-bottom: 72px; }
+  header { position: sticky; top: 0; z-index: 5; display: flex; align-items: center; gap: 10px; padding: 10px 14px; background: rgba(13,19,17,.92); backdrop-filter: blur(8px); border-bottom: 1px solid var(--line); }
+  header h1 { font-size: 16px; margin: 0; font-weight: 650; letter-spacing: .2px; flex: 1; }
+  .logo { display: inline-flex; gap: 3px; }
+  .logo i { width: 10px; height: 10px; border-radius: 50%; display: block; }
+  .pill { font-size: 12px; padding: 4px 10px; border-radius: 999px; background: var(--panel2); color: var(--muted); border: 1px solid var(--line); white-space: nowrap; }
+  .pill.live { color: var(--ok); border-color: #2c5a41; }
+  .pill.shot { color: var(--warn); border-color: #6b4f22; }
+  main { max-width: 760px; margin: 0 auto; padding: 12px; }
+  section.tab { display: none; }
+  section.tab.on { display: block; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: var(--r); padding: 14px; margin-bottom: 12px; }
+  .card h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); margin: 0 0 10px; font-weight: 600; }
+  .stage { position: relative; background: #000; border-radius: var(--r); overflow: hidden; border: 1px solid var(--line); }
+  #view { display: block; width: 100%; height: auto; touch-action: none; }
+  .stage .hint { pointer-events: none; position: absolute; left: 8px; right: 8px; top: 8px; background: rgba(0,0,0,.72); padding: 8px 10px; border-radius: 10px; font-size: 13px; }
+  .stage .empty { aspect-ratio: 16/9; display: grid; place-items: center; color: var(--muted); text-align: center; padding: 20px; }
+  .row { display: flex; gap: 8px; flex-wrap: wrap; }
+  button, .btn { appearance: none; border: 1px solid var(--line); background: var(--panel2); color: var(--text); padding: 10px 14px; border-radius: 11px; font: inherit; font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; }
+  button.primary, .btn.primary { background: var(--felt); border-color: #3d8a6d; }
+  button:disabled { opacity: .45; }
+  button.small { padding: 6px 10px; font-size: 13px; }
+  .grow { flex: 1; justify-content: center; }
+  input[type=file] { display: none; }
+  .verdict { display: flex; align-items: center; gap: 12px; }
+  .verdict .big { font-size: 28px; font-weight: 800; letter-spacing: .02em; }
+  .verdict.ok .big { color: var(--ok); } .verdict.ko .big { color: var(--ko); } .verdict.foul .big { color: var(--warn); }
+  .reason { color: var(--text); margin-top: 4px; }
+  .muted { color: var(--muted); }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+  .chip { font-size: 12.5px; padding: 4px 9px; border-radius: 999px; background: var(--panel2); border: 1px solid var(--line); display: inline-flex; align-items: center; gap: 5px; }
+  .dot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .metric { background: var(--panel2); border-radius: 11px; padding: 10px; }
+  .metric .v { font-size: 22px; font-weight: 750; }
+  .metric .l { font-size: 12px; color: var(--muted); }
+  .bar { height: 6px; background: #0b100e; border-radius: 4px; overflow: hidden; margin-top: 6px; }
+  .bar > i { display: block; height: 100%; background: var(--chalk); }
+  .effect { font-size: 20px; font-weight: 750; }
+  ul.comments { margin: 8px 0 0; padding-left: 18px; color: var(--muted); }
+  ul.comments li { margin: 2px 0; }
+  .mini svg { width: 100%; height: auto; display: block; border-radius: 10px; }
+  .list .item { display: flex; gap: 10px; align-items: center; padding: 10px 0; border-bottom: 1px solid var(--line); cursor: pointer; }
+  .list .item:last-child { border-bottom: 0; }
+  .badge { min-width: 30px; height: 30px; border-radius: 9px; display: grid; place-items: center; font-weight: 800; }
+  .badge.ok { background: #173a28; color: var(--ok); } .badge.ko { background: #3a1919; color: var(--ko); } .badge.foul { background: #3a2c15; color: var(--warn); }
+  label.f { display: block; margin: 10px 0 4px; color: var(--muted); font-size: 13px; }
+  select, input[type=range] { width: 100%; }
+  select { background: var(--panel2); color: var(--text); border: 1px solid var(--line); border-radius: 10px; padding: 9px; font: inherit; }
+  .switch { display: flex; align-items: center; justify-content: space-between; margin-top: 12px; }
+  nav { position: fixed; bottom: 0; left: 0; right: 0; display: flex; background: rgba(13,19,17,.96); border-top: 1px solid var(--line); padding: 6px 6px calc(6px + env(safe-area-inset-bottom)); z-index: 6; }
+  nav button { flex: 1; background: none; border: 0; color: var(--muted); flex-direction: column; gap: 2px; font-size: 12px; padding: 6px; }
+  nav button.on { color: var(--text); }
+  nav svg { width: 22px; height: 22px; }
+  .toast { position: fixed; left: 50%; bottom: 84px; transform: translateX(-50%); background: #26332e; border: 1px solid var(--line); padding: 9px 14px; border-radius: 10px; font-size: 14px; opacity: 0; transition: opacity .25s; pointer-events: none; z-index: 9; max-width: 90vw; }
+  .toast.on { opacity: 1; }
+  .progress { height: 4px; background: #0b100e; border-radius: 3px; overflow: hidden; margin-top: 8px; display: none; }
+  .progress > i { display: block; height: 100%; width: 0; background: var(--chalk); }
+  .help p { margin: 6px 0; } .help ol { padding-left: 18px; margin: 6px 0; }
+  .effbars .r { display: grid; grid-template-columns: 96px 1fr 28px; gap: 8px; align-items: center; margin: 5px 0; font-size: 13px; }
+  textarea { width: 100%; min-height: 120px; background: #0b100e; color: var(--muted); border: 1px solid var(--line); border-radius: 10px; font: 12px ui-monospace, monospace; }
+</style>
+</head>
+<body>
+<header>
+  <span class="logo" aria-hidden="true"><i style="background:var(--white)"></i><i style="background:var(--yellow)"></i><i style="background:var(--red)"></i></span>
+  <h1>Carambole · arbitre</h1>
+  <span id="status" class="pill">Pas de source</span>
+</header>
+
+<main>
+  <!-- ===== Analyse ===== -->
+  <section id="tab-live" class="tab on">
+    <div class="stage" id="stage">
+      <div class="empty" id="empty">Choisissez une source :<br>la caméra du téléphone ou une vidéo d'un coup (idéalement au ralenti).</div>
+      <canvas id="view" hidden></canvas>
+      <div class="hint" id="hint" hidden></div>
+    </div>
+    <div class="progress" id="progress"><i></i></div>
+    <div class="row" style="margin:10px 0 12px">
+      <button class="primary grow" id="btnCam">Caméra</button>
+      <label class="btn grow" for="file">Importer une vidéo</label>
+      <input type="file" id="file" accept="video/*">
+      <button class="grow" id="btnCalib" disabled>Calibrer</button>
+    </div>
+    <div class="row" id="calibBar" style="margin:-4px 0 12px" hidden>
+      <button class="small" id="btnUndo">Effacer le dernier coin</button>
+      <button class="small primary" id="btnCalibOk" disabled>Valider le calibrage</button>
+    </div>
+    <div id="result"></div>
+  </section>
+
+  <!-- ===== Historique ===== -->
+  <section id="tab-hist" class="tab">
+    <div class="card" id="stats"></div>
+    <div class="card"><h2>Répartition des effets</h2><div class="effbars" id="effbars"></div></div>
+    <div class="card"><h2>Coups</h2><div class="list" id="histList"></div></div>
+    <div class="row">
+      <button class="small" id="btnCopy">Copier l'historique (JSON)</button>
+      <button class="small" id="btnClear">Effacer l'historique</button>
+    </div>
+    <div id="histDetail" style="margin-top:12px"></div>
+  </section>
+
+  <!-- ===== Réglages ===== -->
+  <section id="tab-set" class="tab">
+    <div class="card">
+      <h2>Table et jeu</h2>
+      <label class="f" for="sTable">Taille de la table</label>
+      <select id="sTable"></select>
+      <label class="f" for="sPlayer">Bille du joueur</label>
+      <select id="sPlayer">
+        <option value="auto">Automatique (la première qui part)</option>
+        <option value="0">Blanche</option>
+        <option value="1">Jaune</option>
+      </select>
+      <div class="switch"><span>Analyser le geste (queue)</span><input type="checkbox" id="sGesture"></div>
+    </div>
+    <div class="card">
+      <h2>Vidéo importée</h2>
+      <label class="f" for="sSlow">Facteur de ralenti de la vidéo</label>
+      <select id="sSlow">
+        <option value="1">×1 — vidéo normale ou 120/240 i/s natif</option>
+        <option value="2">×2</option>
+        <option value="4">×4 (120 i/s lu à 30)</option>
+        <option value="8">×8 (240 i/s lu à 30)</option>
+      </select>
+      <p class="muted" style="font-size:13px;margin:8px 0 0">Si la vidéo se lit au ralenti dans la galerie, indiquez de combien : les vitesses (et donc l'effet) en dépendent.</p>
+    </div>
+    <div class="card">
+      <h2>Détection</h2>
+      <label class="f" for="sSens">Sensibilité des couleurs : <b id="sSensV"></b></label>
+      <input type="range" id="sSens" min="-3" max="3" step="1">
+      <p class="muted" style="font-size:13px;margin:6px 0 0">Augmentez si une bille n'est pas vue, baissez si des reflets ou des mains sont pris pour des billes.</p>
+      <div class="switch"><span>Afficher les masques de couleur</span><input type="checkbox" id="sDebug"></div>
+    </div>
+    <div class="card help">
+      <h2>Bien filmer</h2>
+      <ol>
+        <li>Téléphone sur pied, en <b>paysage</b>, le plus haut possible, toute la table dans l'image.</li>
+        <li>Ne plus bouger le téléphone après le calibrage.</li>
+        <li>Calibrer : touchez les 4 coins intérieurs (nez de bande). <b>Coins 1 et 2 sur une même grande bande</b>, puis 3 et 4 en continuant le tour.</li>
+        <li>Pour juger un contact serré : filmez le coup au <b>ralenti</b> (120 ou 240 i/s) puis importez la vidéo.</li>
+        <li>La caméra en direct ne marche pas dans la page intégrée à Claude : ouvrez la page hébergée en HTTPS (GitHub Pages par exemple) dans Chrome.</li>
+      </ol>
+    </div>
+  </section>
+</main>
+
+<nav>
+  <button class="on" data-tab="live"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="2.5" fill="currentColor"/></svg>Analyse</button>
+  <button data-tab="hist"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19V5M4 19h16M8 15l3-4 3 2 5-6"/></svg>Historique</button>
+  <button data-tab="set"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/></svg>Réglages</button>
+</nav>
+<div class="toast" id="toast"></div>
+<video id="video" playsinline muted hidden></video>
+
+<script>/*ENGINE*/</script>
+<script>
+'use strict';
+const E = CaramboleEngine;
+const $ = (s) => document.querySelector(s);
+const COLORS = ['#f1f1ea', '#f2c230', '#d8343b'];
+const NAMES = E.NAMES;
+const CAP = (s) => s.charAt(0).toUpperCase() + s.slice(1);
+
+// ---------- stockage (peut être indisponible) ----------
+const store = {
+  get(k, d) { try { const v = JSON.parse(localStorage.getItem(k)); return v == null ? d : v; } catch (e) { return d; } },
+  set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) { /* pas de stockage */ } },
+};
+const settings = Object.assign({ table: 'match', player: 'auto', slowmo: 1, gesture: true, sens: 0, debug: false }, store.get('car.settings', {}));
+let history = store.get('car.history', []);
+let corners = store.get('car.corners', null); // coordonnées normalisées 0..1
+
+// ---------- état ----------
+const video = $('#video'), view = $('#view'), vctx = view.getContext('2d');
+const work = document.createElement('canvas'), wctx = work.getContext('2d', { willReadFrequently: true });
+let source = null;          // 'camera' | 'file'
+let det = null, ses = null;
+let calibrating = false, calibPts = [], dragIdx = -1;
+let lastPos = [null, null, null], trails = [[], [], []], lastResult = null;
+let running = false, fileJob = 0;
+
+function toast(msg, ms = 2600) { const t = $('#toast'); t.textContent = msg; t.classList.add('on'); clearTimeout(toast.h); toast.h = setTimeout(() => t.classList.remove('on'), ms); }
+function setStatus(text, cls = '') { const s = $('#status'); s.textContent = text; s.className = 'pill ' + cls; }
+function hint(text) { const h = $('#hint'); h.hidden = !text; h.textContent = text || ''; }
+
+function colorsFromSens(s) {
+  return { wV: 0.62 - 0.04 * s, wS: 0.30 + 0.03 * s, yS: 0.42 - 0.04 * s, yV: 0.40 - 0.03 * s, rS: 0.48 - 0.04 * s, rV: 0.25 - 0.02 * s };
+}
+function tableDims() { return E.TABLES[settings.table] || E.TABLES.match; }
+
+// ---------- image ----------
+function procSize() {
+  const vw = video.videoWidth || 1280, vh = video.videoHeight || 720, W = Math.min(640, vw);
+  return [W, Math.round(vh * W / vw)];
+}
+function grab() {
+  const [w, h] = procSize();
+  if (work.width !== w || work.height !== h) { work.width = w; work.height = h; view.width = w; view.height = h; }
+  wctx.drawImage(video, 0, 0, w, h);
+  return wctx.getImageData(0, 0, w, h);
+}
+function showStage() { $('#empty').hidden = true; view.hidden = false; }
+
+// ---------- dessin ----------
+function draw(img) {
+  const w = view.width, h = view.height;
+  if (img && settings.debug && det) {
+    const d = new ImageData(new Uint8ClampedArray(img.data), w, h), cls = det.cls, pal = [null, [255, 0, 255], [0, 255, 255], [0, 255, 0]];
+    for (let i = 0; i < cls.length; i++) if (cls[i]) { const c = pal[cls[i]]; d.data[4 * i] = c[0]; d.data[4 * i + 1] = c[1]; d.data[4 * i + 2] = c[2]; }
+    vctx.putImageData(d, 0, 0);
+  } else vctx.drawImage(work, 0, 0);
+  vctx.lineWidth = Math.max(1.5, w / 400);
+  if (det && !calibrating) {
+    const { L, W } = det.table, pts = [[0, 0], [L, 0], [L, W], [0, W]].map((p) => E.project(det.Hi, p[0], p[1]));
+    vctx.strokeStyle = 'rgba(90,169,230,.8)'; vctx.beginPath(); pts.forEach((p, i) => (i ? vctx.lineTo(p[0], p[1]) : vctx.moveTo(p[0], p[1]))); vctx.closePath(); vctx.stroke();
+    for (let b = 0; b < 3; b++) {
+      const tr = trails[b];
+      if (tr.length > 1) {
+        vctx.strokeStyle = COLORS[b]; vctx.globalAlpha = 0.85; vctx.beginPath();
+        tr.forEach((p, i) => { const q = E.project(det.Hi, p[0], p[1]); i ? vctx.lineTo(q[0], q[1]) : vctx.moveTo(q[0], q[1]); });
+        vctx.stroke(); vctx.globalAlpha = 1;
+      }
+      const p = lastPos[b];
+      if (p) {
+        const q = E.project(det.Hi, p[0], p[1]), r = det.localRadius(p[0], p[1]);
+        vctx.strokeStyle = COLORS[b]; vctx.beginPath(); vctx.ellipse(q[0], q[1], r[0] + 3, r[1] + 3, 0, 0, Math.PI * 2); vctx.stroke();
+      }
+    }
+  }
+  if (calibrating) {
+    const pts = calibPts.map(([u, v]) => [u * w, v * h]);
+    vctx.strokeStyle = '#5aa9e6'; vctx.fillStyle = 'rgba(90,169,230,.15)';
+    if (pts.length > 1) { vctx.beginPath(); pts.forEach((p, i) => (i ? vctx.lineTo(p[0], p[1]) : vctx.moveTo(p[0], p[1]))); if (pts.length === 4) { vctx.closePath(); vctx.fill(); } vctx.stroke(); }
+    pts.forEach((p, i) => {
+      vctx.fillStyle = i < 2 ? '#f2a93b' : '#5aa9e6';
+      vctx.beginPath(); vctx.arc(p[0], p[1], w / 70, 0, Math.PI * 2); vctx.fill();
+      vctx.fillStyle = '#000'; vctx.font = `bold ${Math.round(w / 55)}px system-ui`; vctx.textAlign = 'center'; vctx.textBaseline = 'middle';
+      vctx.fillText(String(i + 1), p[0], p[1] + 1);
+    });
+  }
+}
+
+// ---------- calibrage ----------
+const CALIB_HINTS = [
+  'Touchez le coin 1 (nez de bande).',
+  'Coin 2 : l\'autre bout de la MÊME grande bande.',
+  'Coin 3 : en continuant le tour de la table.',
+  'Coin 4 : le dernier coin.',
+  'Faites glisser un coin pour l\'ajuster, puis validez. Retirez mains et queue de la table.',
+];
+function startCalib() {
+  calibrating = true; calibPts = corners ? corners.map((c) => c.slice()) : [];
+  $('#calibBar').hidden = false; $('#btnCalibOk').disabled = calibPts.length !== 4;
+  if (source === 'camera') { /* l'image continue de défiler */ } else video.pause();
+  hint(CALIB_HINTS[Math.min(calibPts.length, 4)]);
+  grab(); draw();
+}
+function endCalib(ok) {
+  calibrating = false; $('#calibBar').hidden = true; hint('');
+  if (ok) {
+    corners = calibPts.map((c) => c.slice()); store.set('car.corners', corners);
+    buildEngine();
+    toast('Calibrage enregistré');
+    if (source === 'file') analyzeFile();
+  }
+  draw();
+}
+function evtPos(e) {
+  const r = view.getBoundingClientRect();
+  return [(e.clientX - r.left) / r.width, (e.clientY - r.top) / r.height];
+}
+view.addEventListener('pointerdown', (e) => {
+  if (!calibrating) return;
+  const p = evtPos(e), r = view.getBoundingClientRect();
+  dragIdx = calibPts.findIndex((c) => Math.hypot((c[0] - p[0]) * r.width, (c[1] - p[1]) * r.height) < 28);
+  if (dragIdx < 0 && calibPts.length < 4) { calibPts.push(p); dragIdx = calibPts.length - 1; }
+  view.setPointerCapture(e.pointerId);
+  $('#btnCalibOk').disabled = calibPts.length !== 4;
+  hint(CALIB_HINTS[Math.min(calibPts.length, 4)]);
+  draw();
+});
+view.addEventListener('pointermove', (e) => { if (calibrating && dragIdx >= 0) { calibPts[dragIdx] = evtPos(e); draw(); } });
+view.addEventListener('pointerup', () => { dragIdx = -1; });
+$('#btnUndo').onclick = () => { calibPts.pop(); $('#btnCalibOk').disabled = true; hint(CALIB_HINTS[calibPts.length]); draw(); };
+$('#btnCalibOk').onclick = () => endCalib(true);
+$('#btnCalib').onclick = () => (calibrating ? endCalib(false) : startCalib());
+
+function buildEngine() {
+  if (!corners) return;
+  const [w, h] = procSize();
+  try {
+    det = new E.Detector(w, h, corners.map(([u, v]) => [u * w, v * h]), tableDims(), { colors: colorsFromSens(settings.sens) });
+  } catch (err) { det = null; ses = null; toast(err.message); return; }
+  det.learnCloth(grab());
+  ses = new E.Session(det, { player: settings.player === 'auto' ? 'auto' : +settings.player, gesture: settings.gesture });
+  trails = [[], [], []];
+}
+
+// ---------- traitement d'une image ----------
+const dbg = (window.__carambole = { frames: 0, times: [] });
+function processFrame(t) {
+  dbg.frames++; dbg.times.push(t);
+  const img = grab();
+  if (calibrating || !ses) { draw(); return; }
+  const out = ses.process(img, t);
+  lastPos = out.pos;
+  if (out.state === 'shot') out.pos.forEach((p, b) => p && trails[b].push(p));
+  if (out.event && out.event.type === 'start') { trails = [[], [], []]; setStatus('Coup en cours', 'shot'); }
+  if (out.event && out.event.type === 'end') onResult(out.event.result);
+  if (out.state === 'idle' && $('#status').classList.contains('shot')) setStatus(source === 'camera' ? 'En direct' : 'Analyse vidéo', 'live');
+  draw(img);
+}
+
+function onResult(r) {
+  if (r.ignored) { toast('Mouvement ignoré : ' + r.reason); return; }
+  r.id = Date.now() + Math.random();
+  lastResult = r;
+  history.unshift(compact(r));
+  if (history.length > 300) history.length = 300;
+  store.set('car.history', history);
+  $('#result').innerHTML = resultHTML(r);
+  bindResult($('#result'), r);
+  try { navigator.vibrate && navigator.vibrate(r.valid ? [60, 60, 60] : [250]); } catch (e) { /* ignoré */ }
+  renderHistory();
+}
+function compact(r) {
+  const round = (p) => p && [Math.round(p[0] * 1000) / 1000, Math.round(p[1] * 1000) / 1000];
+  return {
+    id: r.id, time: r.time, valid: r.valid, foul: !!r.foul, reason: r.reason, confidence: r.confidence, cue: r.cue, fps: r.fps,
+    sequence: (r.sequence || []).map((e) => ({ type: e.type, ball: e.ball, rail: e.rail, p: round(e.p) })),
+    effect: r.effect, gesture: r.gesture, notes: r.notes,
+    traj: (r.traj || []).map((ps) => ps && ps.filter((_, i) => i % 2 === 0).map(round)), table: settings.table, corrected: null,
+  };
+}
+
+// ---------- caméra ----------
+async function startCamera() {
+  stopFile();
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: false, video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 60 } } });
+    video.srcObject = stream; video.removeAttribute('src');
+    await video.play();
+    source = 'camera'; showStage(); $('#btnCalib').disabled = false;
+    const fr = stream.getVideoTracks()[0].getSettings().frameRate;
+    setStatus(`En direct${fr ? ' · ' + Math.round(fr) + ' i/s' : ''}`, 'live');
+    if (corners) buildEngine(); else startCalib();
+    running = true; loopCamera();
+  } catch (err) {
+    toast('Caméra indisponible ici. Importez une vidéo, ou ouvrez la page hébergée dans Chrome.', 5000);
+  }
+}
+function loopCamera() {
+  if (!running || source !== 'camera') return;
+  const t0 = performance.now();
+  if ('requestVideoFrameCallback' in video) {
+    video.requestVideoFrameCallback((now, meta) => { processFrame(meta.mediaTime || now / 1000); loopCamera(); });
+  } else requestAnimationFrame(() => { processFrame(t0 / 1000); loopCamera(); });
+}
+function stopCamera() {
+  running = false;
+  if (video.srcObject) { video.srcObject.getTracks().forEach((t) => t.stop()); video.srcObject = null; }
+}
+
+// ---------- vidéo importée ----------
+function stopFile() { fileJob++; try { video.pause(); } catch (e) { /* rien */ } }
+function once(el, ev) { return new Promise((res) => el.addEventListener(ev, res, { once: true })); }
+async function openFile(file) {
+  stopCamera(); stopFile();
+  setStatus('Chargement…'); $('#result').innerHTML = ''; trails = [[], [], []];
+  video.srcObject = null; video.src = URL.createObjectURL(file);
+  await once(video, 'loadeddata');
+  source = 'file'; showStage(); $('#btnCalib').disabled = false;
+  video.currentTime = 0; await once(video, 'seeked');
+  grab(); draw();
+  setStatus('Vidéo chargée');
+  if (corners) analyzeFile(); else startCalib();
+}
+async function analyzeFile() {
+  const job = ++fileJob;
+  buildEngine(); if (!ses) return;
+  const k = +settings.slowmo || 1;
+  const bar = $('#progress'); bar.style.display = 'block';
+  setStatus('Analyse vidéo', 'live'); lastPos = [null, null, null];
+  video.currentTime = 0; await once(video, 'seeked');
+  let tLast = 0, done = false;
+  const finish = () => {
+    if (done) return; done = true;
+    // fin de vidéo : on prolonge l'immobilité pour clore le coup en cours
+    for (let i = 1; i <= 12 && ses.state === 'shot'; i++) {
+      const out = ses.process(wctx.getImageData(0, 0, work.width, work.height), tLast + i * 0.1);
+      if (out.event && out.event.type === 'end') onResult(out.event.result);
+    }
+    bar.style.display = 'none'; setStatus('Vidéo analysée');
+  };
+  if ('requestVideoFrameCallback' in video) {
+    video.playbackRate = 0.5;
+    const step = (now, meta) => {
+      if (job !== fileJob) return;
+      video.pause();
+      tLast = meta.mediaTime / k;
+      processFrame(tLast);
+      bar.firstElementChild.style.width = (100 * meta.mediaTime / video.duration) + '%';
+      if (video.ended || meta.mediaTime >= video.duration - 0.001) { finish(); return; }
+      video.requestVideoFrameCallback(step);
+      video.play().catch(() => {});
+    };
+    video.requestVideoFrameCallback(step);
+    video.addEventListener('ended', () => { if (job === fileJob) finish(); }, { once: true });
+    await video.play().catch(() => toast('Lecture impossible'));
+  } else {
+    const dt = 1 / 30;
+    for (let t = 0; t <= video.duration && job === fileJob; t += dt) {
+      video.currentTime = t; await once(video, 'seeked');
+      tLast = t / k; processFrame(tLast);
+      bar.firstElementChild.style.width = (100 * t / video.duration) + '%';
+    }
+    if (job === fileJob) finish();
+  }
+}
+
+// ---------- rendu des résultats ----------
+function tableSVG(r, dims) {
+  const { L, W } = dims, s = 100, pad = 9;
+  const X = (x) => (pad + x * s).toFixed(1), Y = (y) => (pad + y * s).toFixed(1);
+  let h = `<svg viewBox="0 0 ${L * s + 2 * pad} ${W * s + 2 * pad}" xmlns="http://www.w3.org/2000/svg">`;
+  h += `<rect x="0" y="0" width="${L * s + 2 * pad}" height="${W * s + 2 * pad}" rx="6" fill="#4a2f1b"/>`;
+  h += `<rect x="${pad}" y="${pad}" width="${L * s}" height="${W * s}" fill="#2a5c86"/>`;
+  for (let i = 1; i < 8; i++) { h += `<circle cx="${X(L * i / 8)}" cy="${pad / 2}" r="1.2" fill="#e8dcc0"/><circle cx="${X(L * i / 8)}" cy="${W * s + 1.5 * pad}" r="1.2" fill="#e8dcc0"/>`; }
+  for (let i = 1; i < 4; i++) { h += `<circle cx="${pad / 2}" cy="${Y(W * i / 4)}" r="1.2" fill="#e8dcc0"/><circle cx="${L * s + 1.5 * pad}" cy="${Y(W * i / 4)}" r="1.2" fill="#e8dcc0"/>`; }
+  const traj = r.traj || [];
+  traj.forEach((ps, b) => {
+    if (!ps || !ps.length) return;
+    const pts = ps.filter(Boolean).map((p) => `${X(p[0])},${Y(p[1])}`).join(' ');
+    h += `<polyline points="${pts}" fill="none" stroke="${COLORS[b]}" stroke-width="${b === r.cue ? 1.6 : 1}" stroke-opacity="${b === r.cue ? 0.95 : 0.6}" stroke-linejoin="round" ${b === r.cue ? '' : 'stroke-dasharray="3 2"'}/>`;
+  });
+  traj.forEach((ps, b) => {
+    if (!ps || !ps.length) return;
+    const a = ps[0], z = ps[ps.length - 1];
+    h += `<circle cx="${X(a[0])}" cy="${Y(a[1])}" r="3.1" fill="${COLORS[b]}" stroke="#000" stroke-width=".6"/>`;
+    h += `<circle cx="${X(z[0])}" cy="${Y(z[1])}" r="3.1" fill="none" stroke="${COLORS[b]}" stroke-width="1"/>`;
+  });
+  (r.sequence || []).forEach((e, i) => {
+    if (!e.p) return;
+    const c = e.type === 'bille' ? '#ffffff' : '#f2a93b';
+    h += `<circle cx="${X(e.p[0])}" cy="${Y(e.p[1])}" r="4.6" fill="#000" fill-opacity=".55" stroke="${c}" stroke-width=".8"/>`;
+    h += `<text x="${X(e.p[0])}" y="${(+Y(e.p[1]) + 2.2).toFixed(1)}" font-size="6" text-anchor="middle" fill="${c}" font-family="system-ui" font-weight="700">${i + 1}</text>`;
+  });
+  return h + '</svg>';
+}
+function verdictOf(r) {
+  const valid = r.corrected != null ? r.corrected : r.valid;
+  if (r.foul && r.corrected == null) return { cls: 'foul', txt: 'FAUTE', badge: 'F' };
+  return valid ? { cls: 'ok', txt: 'POINT', badge: '✓' } : { cls: 'ko', txt: 'PAS DE POINT', badge: '✗' };
+}
+function seqChips(r) {
+  const cue = r.cue != null ? `<span class="chip"><span class="dot" style="background:${COLORS[r.cue]}"></span>Bille jouée : ${NAMES[r.cue]}</span>` : '';
+  const seq = (r.sequence || []).map((e, i) => e.type === 'bille'
+    ? `<span class="chip">${i + 1}. <span class="dot" style="background:${COLORS[e.ball]}"></span>${CAP(NAMES[e.ball])}</span>`
+    : `<span class="chip">${i + 1}. Bande ${e.rail}</span>`).join('');
+  return `<div class="chips">${cue}${seq}</div>`;
+}
+function fmt(v, d = 1) { return v == null || isNaN(v) ? '–' : v.toFixed(d).replace('.', ','); }
+function resultHTML(r) {
+  const v = verdictOf(r), eff = r.effect || {}, g = r.gesture || {};
+  const meter = (label, val) => `<div class="metric"><div class="l">${label}</div><div class="v">${val == null ? '–' : val}<span class="muted" style="font-size:13px">${val == null ? '' : '/100'}</span></div><div class="bar"><i style="width:${val || 0}%"></i></div></div>`;
+  const effDetail = eff.type && eff.type !== 'indetermine'
+    ? `<div class="muted" style="font-size:13px">k = ${fmt(eff.k, 2)} · coupe ${fmt(eff.cut, 0)}° · ${fmt(eff.speed, 1)} m/s · confiance ${eff.conf}</div>`
+    : `<div class="muted" style="font-size:13px">${eff.note || ''}</div>`;
+  const gest = g.visible
+    ? `<div class="grid2">${meter('Rectitude', g.straightness)}${meter('Régularité', g.regularity)}</div>
+       <div class="chips"><span class="chip">Angle ±${fmt(g.angleStd)}°</span><span class="chip">Latéral ±${fmt(g.offsetStd)} cm</span>${g.deviation != null ? `<span class="chip">Départ ${fmt(g.deviation)}°</span>` : ''}${g.strokes ? `<span class="chip">${g.strokes} va-et-vient${g.period ? ' · ' + fmt(g.period, 2) + ' s' : ''}</span>` : ''}</div>
+       <ul class="comments">${(g.comments || []).map((c) => `<li>${c}</li>`).join('')}</ul>`
+    : `<div class="muted">${g.note || 'Geste non analysé'}</div>`;
+  const notes = (r.notes || []).length ? `<ul class="comments">${r.notes.map((n) => `<li>${n}</li>`).join('')}</ul>` : '';
+  return `
+  <div class="card">
+    <div class="verdict ${v.cls}"><div class="big">${v.txt}</div><span class="pill">confiance ${r.confidence}</span>${r.corrected != null ? '<span class="pill">corrigé</span>' : ''}</div>
+    <div class="reason">${r.reason}</div>
+    ${seqChips(r)}${notes}
+    <div class="row" style="margin-top:12px">
+      <button class="small" data-fix="1">C'était un point</button>
+      <button class="small" data-fix="0">Ce n'était pas un point</button>
+    </div>
+  </div>
+  <div class="card mini"><h2>Trajectoires</h2>${tableSVG(r, E.TABLES[r.table] || tableDims())}
+    <div class="muted" style="font-size:12px;margin-top:6px">Trait plein : bille jouée. Points numérotés : contacts (blanc) et bandes (orange).</div></div>
+  <div class="card"><h2>Effet</h2><div class="effect">${eff.label || '–'}</div>${effDetail}</div>
+  <div class="card"><h2>Geste</h2>${gest}</div>`;
+}
+function bindResult(root, r) {
+  root.querySelectorAll('[data-fix]').forEach((b) => b.onclick = () => {
+    const h = history.find((x) => x.id === r.id);
+    const val = b.dataset.fix === '1';
+    r.corrected = val; if (h) h.corrected = val;
+    store.set('car.history', history);
+    root.innerHTML = resultHTML(h || r); bindResult(root, h || r);
+    renderHistory(); toast('Correction enregistrée');
+  });
+}
+function isPoint(h) { return h.corrected != null ? h.corrected : h.valid; }
+function renderHistory() {
+  const n = history.length, pts = history.filter(isPoint).length;
+  let serie = 0, best = 0, cur = 0;
+  for (let i = n - 1; i >= 0; i--) { if (isPoint(history[i])) { cur++; best = Math.max(best, cur); } else cur = 0; }
+  for (const h of history) { if (isPoint(h)) serie++; else break; }
+  const gs = history.filter((h) => h.gesture && h.gesture.visible);
+  const avg = (f) => { const v = gs.map(f).filter((x) => x != null); return v.length ? Math.round(v.reduce((a, b) => a + b, 0) / v.length) : '–'; };
+  const corr = history.filter((h) => h.corrected != null && h.corrected !== h.valid).length;
+  $('#stats').innerHTML = `<h2>Statistiques</h2><div class="grid2">
+    <div class="metric"><div class="l">Points / coups</div><div class="v">${pts}<span class="muted" style="font-size:14px"> / ${n}</span></div><div class="bar"><i style="width:${n ? 100 * pts / n : 0}%"></i></div></div>
+    <div class="metric"><div class="l">Série en cours · meilleure</div><div class="v">${serie}<span class="muted" style="font-size:14px"> · ${best}</span></div></div>
+    <div class="metric"><div class="l">Rectitude moyenne</div><div class="v">${avg((h) => h.gesture.straightness)}</div></div>
+    <div class="metric"><div class="l">Régularité moyenne</div><div class="v">${avg((h) => h.gesture.regularity)}</div></div>
+  </div><div class="muted" style="font-size:12px;margin-top:8px">${corr} verdict(s) corrigé(s) à la main${n ? ` · ${Math.round(100 * (n - corr) / n)} % d'accord avec l'arbitre` : ''}</div>`;
+  const types = ['retro', 'amorti', 'naturel', 'coule'], cnt = {};
+  history.forEach((h) => { const t = h.effect && h.effect.type; if (types.includes(t)) cnt[t] = (cnt[t] || 0) + 1; });
+  const mx = Math.max(1, ...types.map((t) => cnt[t] || 0));
+  $('#effbars').innerHTML = types.map((t) => `<div class="r"><span>${E.EFFECTS[t]}</span><div class="bar" style="margin:0;height:9px"><i style="width:${100 * (cnt[t] || 0) / mx}%"></i></div><span>${cnt[t] || 0}</span></div>`).join('');
+  $('#histList').innerHTML = n ? history.slice(0, 100).map((h) => {
+    const v = verdictOf(h), d = new Date(h.time || Date.now());
+    return `<div class="item" data-id="${h.id}"><div class="badge ${v.cls}">${v.badge}</div><div style="flex:1"><div>${h.reason}</div>
+      <div class="muted" style="font-size:12.5px">${d.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })} · ${h.effect ? h.effect.label : ''}${h.gesture && h.gesture.visible ? ` · rectitude ${h.gesture.straightness}` : ''}</div></div></div>`;
+  }).join('') : '<div class="muted">Aucun coup pour l\'instant.</div>';
+  $('#histList').querySelectorAll('.item').forEach((el) => el.onclick = () => {
+    const h = history.find((x) => String(x.id) === el.dataset.id);
+    if (!h) return;
+    $('#histDetail').innerHTML = resultHTML(h); bindResult($('#histDetail'), h);
+    $('#histDetail').scrollIntoView({ behavior: 'smooth' });
+  });
+}
+$('#btnCopy').onclick = async () => {
+  try { await navigator.clipboard.writeText(JSON.stringify(history)); toast('Historique copié'); }
+  catch (e) { $('#histDetail').innerHTML = `<div class="card"><h2>Historique JSON</h2><textarea readonly>${JSON.stringify(history).replace(/</g, '&lt;')}</textarea></div>`; }
+};
+$('#btnClear').onclick = () => {
+  const b = $('#btnClear');
+  if (b.dataset.armed) { history = []; store.set('car.history', history); renderHistory(); $('#histDetail').innerHTML = ''; b.textContent = 'Effacer l\'historique'; delete b.dataset.armed; toast('Historique effacé'); }
+  else { b.dataset.armed = 1; b.textContent = 'Confirmer l\'effacement'; setTimeout(() => { if (b.dataset.armed) { delete b.dataset.armed; b.textContent = 'Effacer l\'historique'; } }, 4000); }
+};
+
+// ---------- réglages ----------
+function initSettings() {
+  $('#sTable').innerHTML = Object.entries(E.TABLES).map(([k, t]) => `<option value="${k}">${t.label}</option>`).join('');
+  $('#sTable').value = settings.table; $('#sPlayer').value = String(settings.player); $('#sSlow').value = String(settings.slowmo);
+  $('#sGesture').checked = settings.gesture; $('#sDebug').checked = settings.debug; $('#sSens').value = settings.sens;
+  $('#sSensV').textContent = settings.sens > 0 ? '+' + settings.sens : settings.sens;
+  const save = (rebuild) => { store.set('car.settings', settings); if (rebuild && det && !calibrating) buildEngine(); };
+  $('#sTable').onchange = (e) => { settings.table = e.target.value; save(true); };
+  $('#sPlayer').onchange = (e) => { settings.player = e.target.value; save(true); };
+  $('#sSlow').onchange = (e) => { settings.slowmo = +e.target.value; save(false); };
+  $('#sGesture').onchange = (e) => { settings.gesture = e.target.checked; save(true); };
+  $('#sDebug').onchange = (e) => { settings.debug = e.target.checked; save(false); };
+  $('#sSens').oninput = (e) => { settings.sens = +e.target.value; $('#sSensV').textContent = settings.sens > 0 ? '+' + settings.sens : settings.sens; };
+  $('#sSens').onchange = () => save(true);
+}
+
+// ---------- navigation ----------
+document.querySelectorAll('nav button').forEach((b) => b.onclick = () => {
+  document.querySelectorAll('nav button').forEach((x) => x.classList.toggle('on', x === b));
+  document.querySelectorAll('section.tab').forEach((s) => s.classList.toggle('on', s.id === 'tab-' + b.dataset.tab));
+  window.scrollTo(0, 0);
+});
+$('#btnCam').onclick = startCamera;
+$('#file').onchange = (e) => { const f = e.target.files[0]; if (f) openFile(f); e.target.value = ''; };
+
+initSettings();
+renderHistory();
+// installation hors ligne (ignoré quand la page est intégrée dans Claude ou ouverte en fichier local)
+if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost')) {
+  navigator.serviceWorker.register('sw.js').catch(() => {});
+}
+</script>
+</body>
+</html>
